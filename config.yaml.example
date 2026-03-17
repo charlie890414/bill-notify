@@ -1,0 +1,11 @@
+# Bill Notification System Configuration File
+
+# Gmail label name (for filtering bill emails to process)
+gmail_label: "bills"
+
+# Google Calendar settings
+calendar_id: "primary"  # default calendar, can be email address or calendar ID
+reminder_days: 3        # days in advance for reminder
+
+# OpenRouter model settings (optional, defaults to anthropic/claude-3-haiku)
+# model: "anthropic/claude-3-haiku"
