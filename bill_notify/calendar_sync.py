@@ -1,6 +1,6 @@
 """Google Calendar sync module"""
+
 import json
-import os
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -9,13 +9,11 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from bill_notify.config import AppConfig
+from bill_notify.config import AppConfig, SCOPES
 
 
 class CalendarSync:
     """Google Calendar synchronizer"""
-
-    SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
     def __init__(self, config: AppConfig):
         self.config = config
@@ -29,7 +27,7 @@ class CalendarSync:
 
         if token_path.exists():
             creds = Credentials.from_authorized_user_info(
-                json.load(open(token_path)), self.SCOPES
+                json.load(open(token_path)), SCOPES
             )
 
         if not creds or not creds.valid:
@@ -41,7 +39,7 @@ class CalendarSync:
                         f"Please create OAuth 2.0 client credentials in Google Cloud Console and save to {creds_path}"
                     )
                 flow = InstalledAppFlow.from_client_secrets_file(
-                    str(creds_path), self.SCOPES
+                    str(creds_path), SCOPES
                 )
                 creds = flow.run_local_server(port=0)
 

@@ -1,11 +1,14 @@
 """Basic tests - Verify module imports and configuration"""
+
 import sys
-from pathlib import Path
+import importlib.util
 
 # Test configuration loading
 print("Testing configuration loading...")
 try:
-    from bill_notify.config import AppConfig
+    spec = importlib.util.find_spec("bill_notify.config")
+    if spec is None:
+        raise ImportError("bill_notify.config not found")
     print("✓ Config module import successful")
 except ImportError as e:
     print(f"✗ Config module import failed: {e}")

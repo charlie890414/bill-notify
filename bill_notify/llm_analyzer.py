@@ -1,9 +1,9 @@
 """LLM Analyzer - Using OpenRouter's LLM to extract due dates from PDFs"""
-import json
+
 import re
-from datetime import datetime, date
-from typing import Optional, Tuple
-from openai import AsyncOpenAI
+from datetime import date
+from typing import Optional, List, Dict, Any
+import httpx
 from bill_notify.config import AppConfig
 
 
@@ -12,11 +12,10 @@ class LLMAnalyzer:
 
     def __init__(self, config: AppConfig):
         self.config = config
-        self.client = AsyncOpenAI(
-            api_key=config.openrouter.api_key,
-            base_url=config.openrouter.base_url,
-        )
+        self.api_key = config.openrouter.api_key
+        self.base_url = config.openrouter.base_url
         self.model = config.openrouter.model
+        self.pdf_engine = config.openrouter.pdf_engine
 
     def _extract_date_from_text(self, text: str) -> Optional[date]:
         """
@@ -42,22 +41,47 @@ class LLMAnalyzer:
                     if len(groups) == 3:
                         # Determine year/month/day order based on pattern
                         if pattern.startswith(r"(\d{4})"):
-                            year, month, day = int(groups[0]), int(groups[1]), int(groups[2])
+                            year, month, day = (
+                                int(groups[0]),
+                                int(groups[1]),
+                                int(groups[2]),
+                            )
                         elif pattern.startswith(r"(\d{1,2})[-/]"):
                             # Could be MM/DD/YYYY or DD/MM/YYYY, prefer MM/DD/YYYY
-                            first, second, year = int(groups[0]), int(groups[1]), int(groups[2])
+                            first, second, year = (
+                                int(groups[0]),
+                                int(groups[1]),
+                                int(groups[2]),
+                            )
                             # If first > 31, might be year
                             if first > 31:
-                                year, month, day = first, second, int(groups[2]) if len(groups) > 2 else 1
+                                year, month, day = (
+                                    first,
+                                    second,
+                                    int(groups[2]) if len(groups) > 2 else 1,
+                                )
                             else:
                                 month, day, year = first, second, year
                         else:
                             # English month format
-                            month_str, day, year = groups[0], int(groups[1]), int(groups[2])
+                            month_str, day, year = (
+                                groups[0],
+                                int(groups[1]),
+                                int(groups[2]),
+                            )
                             month_map = {
-                                "january": 1, "february": 2, "march": 3, "april": 4,
-                                "may": 5, "june": 6, "july": 7, "august": 8,
-                                "september": 9, "october": 10, "november": 11, "december": 12
+                                "january": 1,
+                                "february": 2,
+                                "march": 3,
+                                "april": 4,
+                                "may": 5,
+                                "june": 6,
+                                "july": 7,
+                                "august": 8,
+                                "september": 9,
+                                "october": 10,
+                                "november": 11,
+                                "december": 12,
                             }
                             month = month_map.get(month_str.lower()[:3], 1)
                             day = int(day)
@@ -68,72 +92,147 @@ class LLMAnalyzer:
 
         return None
 
-    async def analyze_pdf(self, base64_images: list[str]) -> Optional[date]:
+    async def analyze_pdf(self, base64_pdfs: List[str], email_subject: str = "") -> tuple[Optional[date], Optional[str]]:
         """
-        Analyze PDF images, extract due date
+        Analyze PDF documents, extract due date and generate event summary
         Args:
-            base64_images: list of base64 encoded images
+            base64_pdfs: List of base64 encoded PDF data URLs (data:application/pdf;base64,...)
+            email_subject: Email subject for context (to match language and style)
         Returns:
-            Due date if extracted, None otherwise
+            Tuple of (due_date, event_summary) if extracted, (None, None) otherwise
         """
         # Build LLM prompt
-        system_prompt = """You are a professional bill analysis assistant. Analyze the provided bill PDF image and find the "due date" (payment due date / due date).
+        system_prompt = """You are a professional bill analysis assistant. Analyze the provided bill PDF document and extract:
+1. The payment due date
+2. A concise event title for calendar reminder (e.g., "AT&T Internet Bill", "Water Bill Payment")
 
 Important rules:
-1. Return ONLY the due date, no other information
-2. If no clear due date is found, return "NOT_FOUND"
-3. Date format must be: YYYY-MM-DD (e.g., 2025-03-15)
-4. Do not explain, do not apologize, directly return the date or NOT_FOUND
-5. Prioritize the nearest future date as the due date
+- Use the same language as the email subject for the summary
+- Return in this exact format:
+DUE_DATE: YYYY-MM-DD
+SUMMARY: Your event title here
 
-Example output:
-2025-03-15
-or
-NOT_FOUND"""
+- If no clear due date is found, return:
+DUE_DATE: NOT_FOUND
+SUMMARY: 
 
-        user_message = "Please analyze this bill image and tell me what the due date is?"
+Examples:
+DUE_DATE: 2025-03-15
+SUMMARY: AT&T Internet Bill
 
-        # Build message content
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": user_message},
-                    *[
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": img, "detail": "medium"},
-                        }
-                        for img in base64_images
-                    ],
-                ],
-            },
+DUE_DATE: NOT_FOUND
+SUMMARY:"""
+
+        # Include email subject in user message for language context
+        if email_subject:
+            user_message = f"Email subject: {email_subject}\n\nPlease analyze this bill document and extract the due date and a brief event title. Use the same language as the email subject."
+        else:
+            user_message = "Please analyze this bill document and extract the due date and a brief event title."
+
+        # Build message content with PDF file
+        content = [
+            {"type": "text", "text": user_message},
+            *[
+                {
+                    "type": "file",
+                    "file": {
+                        "filename": "document.pdf",
+                        "file_data": base64_pdf,
+                    },
+                }
+                for base64_pdf in base64_pdfs
+            ],
         ]
 
-        try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=0.1,  # low temperature for consistent results
-                max_tokens=50,  # only need short answer
-            )
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": content},
+        ]
 
-            result_text = response.choices[0].message.content.strip()
+        # Build plugins configuration for PDF processing
+        plugins = [
+            {
+                "id": "file-parser",
+                "pdf": {
+                    "engine": self.pdf_engine,
+                },
+            }
+        ]
+
+        # Prepare request payload
+        payload: Dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": 0.1,
+        }
+
+        # Only include plugins if not using native engine
+        if self.pdf_engine != "native":
+            payload["plugins"] = plugins
+
+        # Set up headers
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=60.0,
+                )
+                response.raise_for_status()
+                data = response.json()
+
+            # Extract response content
+            if not data.get("choices") or len(data["choices"]) == 0:
+                print("No choices in response")
+                return None, None
+
+            message = data["choices"][0].get("message", {})
+            message_content = message.get("content")
+            
+            if message_content is None:
+                print("LLM response content is None")
+                return None, None
+
+            result_text = message_content.strip()
             print(f"LLM response: {result_text}")
 
-            if "NOT_FOUND" in result_text.upper():
-                return None
-
-            # Try to extract date from text
-            extracted_date = self._extract_date_from_text(result_text)
+            # Parse DUE_DATE and SUMMARY from response
+            due_date_str = None
+            summary = None
+            
+            for line in result_text.split('\n'):
+                line = line.strip()
+                if line.upper().startswith('DUE_DATE:'):
+                    due_date_str = line.split(':', 1)[1].strip()
+                elif line.upper().startswith('SUMMARY:'):
+                    summary = line.split(':', 1)[1].strip()
+            
+            # Check if due date was found
+            if not due_date_str or due_date_str.upper() == "NOT_FOUND":
+                return None, None
+            
+            # Parse the date
+            extracted_date = self._extract_date_from_text(due_date_str)
             if extracted_date:
-                return extracted_date
+                return extracted_date, summary or "Bill Payment"
+            
+            # If cannot parse date, return None
+            print(f"Cannot parse date: {due_date_str}")
+            return None, None
 
-            # If cannot parse, return None
-            print(f"Cannot parse date: {result_text}")
-            return None
-
+        except httpx.HTTPError as e:
+            print(f"HTTP error during LLM analysis: {e}")
+            response = getattr(e, 'response', None)
+            if response is not None:
+                print(f"Response status: {response.status_code}")
+                print(f"Response body: {response.text}")
+            return None, None
         except Exception as e:
             print(f"LLM analysis failed: {e}")
-            return None
+            return None, None

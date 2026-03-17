@@ -1,4 +1,4 @@
-# 虚拟环境
+# Virtual environment
 .venv/
 env/
 venv/
@@ -6,7 +6,7 @@ ENV/
 env.bak/
 venv.bak/
 
-# Python 缓存
+# Python cache
 __pycache__/
 *.py[cod]
 *$py.class
@@ -35,17 +35,18 @@ wheels/
 *.swo
 *~
 
-# 项目特定
+# Project specific
 credentials.json
 token.json
 .env
 config.yaml
+pdf_passwords.yaml
 downloads/
 processed_emails.log
 
-# 日志
+# Logs
 *.log
 
-# 操作系统
+# OS
 .DS_Store
 Thumbs.db

@@ -5,10 +5,11 @@ Automatically fetch bill PDFs from Gmail, use LLM to extract due dates, and crea
 ## Features
 
 - 📧 Automatically download PDF attachments from unread emails with a specific Gmail label
-- 🤖 Use OpenRouter's LLM (vision model) to scan PDFs and extract due dates
+- 🤖 Use OpenRouter's LLM with PDF text extraction to scan PDFs and extract due dates
 - 📅 Automatically create all-day events in Google Calendar with reminders
 - 🔍 Automatically check for duplicate events to avoid duplicates
 - ✅ Automatically mark processed emails to prevent reprocessing
+- 🔐 Support for encrypted PDFs with sender-based password mapping
 
 ## System Architecture
 
@@ -17,8 +18,8 @@ bill-notify/
 ├── bill_notify/
 │   ├── config.py          # Configuration management
 │   ├── gmail_fetcher.py   # Gmail API integration
-│   ├── pdf_processor.py   # PDF to image conversion
-│   ├── llm_analyzer.py    # LLM analysis (OpenRouter)
+│   ├── pdf_processor.py   # PDF decryption and base64 encoding
+│   ├── llm_analyzer.py    # LLM analysis (OpenRouter with PDF parsing)
 │   ├── calendar_sync.py   # Google Calendar integration
 │   └── main.py            # Main program
 ├── config.yaml            # Configuration file (user-defined)
@@ -26,7 +27,8 @@ bill-notify/
 ├── credentials.json       # Google OAuth credentials
 ├── token.json             # OAuth token (auto-generated)
 ├── downloads/            # Temporary download directory
-└── processed_emails.log  # Processed email record
+├── processed_emails.log  # Processed email record
+└── pdf_passwords.yaml    # PDF decryption passwords (optional, user-created)
 ```
 
 ## Prerequisites
@@ -36,21 +38,8 @@ bill-notify/
    - Gmail API
    - Calendar API
 3. **OpenRouter** account and API Key
-4. **poppler** (pdf2image dependency, for PDF conversion)
 
-### Install poppler
-
-```bash
-# Ubuntu/Debian
-sudo apt-get install poppler-utils
-
-# macOS
-brew install poppler
-
-# Windows
-# Download https://github.com/oschwartz10612/poppler-windows/releases/
-# and add bin/ to PATH
-```
+*Note: No longer requires `poppler` or image conversion dependencies.*
 
 ## Installation and Configuration
 
@@ -101,10 +90,34 @@ uv sync
    gmail_label: "bills"        # Gmail label for filtering bill emails
    calendar_id: "primary"      # Target calendar (default calendar)
    reminder_days: 3            # Days in advance for reminder
-   # model: "meta-llama/llama-3.2-vision-instruct"  # Optional: specify model
+   pdf_engine: "pdf-text"      # PDF processing engine: "pdf-text" (free), "mistral-ocr" (paid), or "native"
+   # model: "anthropic/claude-3-haiku"  # Optional: specify a text-compatible model
    ```
 
-### 6. Prepare Gmail label
+### 6. (Optional) Configure PDF Passwords for Encrypted PDFs
+
+If you receive encrypted PDF bills, create `pdf_passwords.yaml` to map sender emails to passwords:
+
+```yaml
+# Map by exact sender email
+"billing@electricity.com": "electricity123"
+
+# Map by domain wildcard
+"*@telecom.com": "telecom2024"
+
+# Default password for all senders (optional)
+"*": "default_password"
+```
+
+The system will automatically:
+- Extract sender email from each PDF attachment
+- Look up the matching password (exact match → domain wildcard → default)
+- Decrypt the PDF before processing
+- Skip decryption if no password is found (file may not be encrypted)
+
+**Note**: `pdf_passwords.yaml` contains sensitive data - it's already in `.gitignore`.
+
+### 7. Prepare Gmail label
 
 Create a label in your Gmail (e.g., "bills") and add all bill emails that need processing to this label.
 
@@ -138,14 +151,17 @@ Config: Label=bills, Reminder 3 days in advance
 [2/3] Analyzing PDFs to extract due dates...
 
 Processing file: electricity_bill.pdf
-  Converting PDF to images...
+  Sender: billing@electricity.com
+  Attempting decryption with password for billing@electricity.com...
+  ✓  PDF decrypted successfully
   Using LLM to analyze due date...
   LLM response: 2025-03-15
   ✓  Extracted due date: 2025-03-15
   ✓  Created calendar event (ID: abc123...)
 
 Processing file: credit_card_bill.pdf
-  Converting PDF to images...
+  Attempting decryption with password for...
+  ⚠️  Decryption failed, trying without password
   Using LLM to analyze due date...
   LLM response: 2025-04-10
   ✓  Extracted due date: 2025-04-10
@@ -195,10 +211,6 @@ On first run, the program will open a browser window to request Google access pe
 uv sync  # Re-sync dependencies
 ```
 
-### pdf2image error: poppler not found
-
-Confirm poppler is installed and added to PATH.
-
 ### Google authentication fails
 
 - Confirm `credentials.json` is in project root
@@ -211,6 +223,7 @@ Confirm poppler is installed and added to PATH.
 - Check network connection
 - Confirm PDF is clear and readable
 - Consider adjusting the prompt in `llm_analyzer.py`
+- Try a different model (see recommendations below)
 
 ### Label not found
 
@@ -218,22 +231,47 @@ Confirm the configured label (default "bills") exists in Gmail, case-sensitive.
 
 ## Configuration Recommendations
 
-### Recommended OpenRouter Free Models
+### PDF Processing Engine (`pdf_engine`)
 
-Optional in `config.yaml`:
+The `pdf_engine` setting in `config.yaml` controls how PDFs are processed:
+
+- `pdf-text` (default, **free**): Best for well-structured PDFs with clear text content. Uses OpenRouter's built-in PDF parser.
+- `mistral-ocr` (**paid**): Best for scanned documents or PDFs with images. Uses Mistral OCR service (~$0.001 per page).
+- `native`: Only available for models that support file input natively (charged as input tokens).
+
+Example:
 ```yaml
-model: "anthropic/claude-3-haiku"      # Fast, good accuracy
-# or
-model: "meta-llama/llama-3.2-vision-instruct"  # Open source, free
-# or
-model: "google/gemma-3-4b-it"          # Google model
+pdf_engine: "mistral-ocr"  # For scanned/image-heavy PDFs
 ```
+
+### Recommended OpenRouter Text Models
+
+Since we're sending PDFs directly (not images), use text-compatible models:
+
+```yaml
+model: "anthropic/claude-3-haiku"      # Fast, good accuracy, affordable
+# or
+model: "openai/gpt-4o-mini"            # Good balance of speed and accuracy
+# or
+model: "google/gemma-3-27b-it"         # Open source, free tier available
+# or
+model: "meta-llama/llama-3.3-70b-instruct"  # Powerful open source model
+```
+
+*Note: Vision models like `stepfun/step-3.5-flash:free` may still work but are unnecessary now that PDFs are sent directly.*
 
 ### Adjust Reminder Time
 
 ```yaml
 reminder_days: 7  # Remind one week in advance
 ```
+
+### PDF Password Management
+
+For encrypted PDFs, use wildcard patterns in `pdf_passwords.yaml`:
+- Exact match: `"sender@example.com": "password"`
+- Domain wildcard: `"*@example.com": "password"` (matches all @example.com senders)
+- Default: `"*": "password"` (matches any sender)
 
 ### Multi-language Support
 
@@ -252,11 +290,11 @@ uv run pytest
 The project structure is clear with separated modules:
 - Add new email provider: extend `gmail_fetcher.py`
 - Support other calendars: extend `calendar_sync.py`
-- Use local LLM: modify `llm_analyzer.py`
+- Use different LLM: modify `llm_analyzer.py`
 
 ## Security Notes
 
-- Do not commit `credentials.json`, `token.json`, `.env` to version control
+- Do not commit `credentials.json`, `token.json`, `.env`, `pdf_passwords.yaml` to version control
 - These files are already in `.gitignore`
 - OpenRouter API Key is only used for your bill analysis, monitor usage
 - The program only reads emails with the specified label, does not access entire inbox
