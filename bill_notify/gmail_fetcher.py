@@ -1,15 +1,16 @@
 """Gmail email fetcher module"""
 
 import base64
-import json
+import logging
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, List, Optional
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
+from typing import List, Optional, Tuple
 from googleapiclient.errors import HttpError
-from bill_notify.config import AppConfig, SCOPES
+from bill_notify.auth_manager import AuthManager
+from bill_notify.config import AppConfig
+
+
+logger = logging.getLogger(__name__)
 
 
 class GmailFetcher:
@@ -17,7 +18,11 @@ class GmailFetcher:
 
     def __init__(self, config: AppConfig):
         self.config = config
-        self.service = self._authenticate()
+        auth_manager = AuthManager(
+            credentials_file=config.gmail.credentials_file,
+            token_file=config.gmail.token_file
+        )
+        self.service = auth_manager.build_service("gmail", "v1")
         self.processed_log = Path(config.processed_log)
         self.processed_log.parent.mkdir(parents=True, exist_ok=True)
         self._load_processed_emails()
@@ -36,35 +41,11 @@ class GmailFetcher:
             f.write(f"{msg_id}\n")
         self.processed_emails.add(msg_id)
 
-    def _authenticate(self) -> Any:
-        """OAuth 2.0 authentication"""
-        creds = None
-        token_path = Path(self.config.gmail.token_file)
-        creds_path = Path(self.config.gmail.credentials_file)
-
-        if token_path.exists():
-            creds = Credentials.from_authorized_user_info(
-                json.load(open(token_path)), SCOPES
-            )
-
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                if not creds_path.exists():
-                    raise FileNotFoundError(
-                        f"Please create OAuth 2.0 client credentials in Google Cloud Console and save to {creds_path}"
-                    )
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    str(creds_path), SCOPES
-                )
-                creds = flow.run_local_server(port=0)
-
-            token_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(token_path, "w") as token:
-                token.write(creds.to_json())
-
-        return build("gmail", "v1", credentials=creds)
+    def _save_all_processed(self):
+        """Save all processed email IDs to log"""
+        with open(self.processed_log, "w", encoding="utf-8") as f:
+            for msg_id in sorted(self.processed_emails):
+                f.write(f"{msg_id}\n")
 
     def get_label_id(self, label_name: str) -> str:
         """Get label ID"""
@@ -81,9 +62,19 @@ class GmailFetcher:
             raise Exception(f"Failed to get label: {error}")
 
     def get_emails_with_label(self, label_name: str) -> List[dict]:
-        """Get unread emails with specific label"""
+        """Get unread emails with specific label within the last N days"""
         try:
-            query = f"label:{label_name}"
+            # Build date-based query
+            days_back = self.config.gmail.days_back
+            if days_back > 0:
+                since_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y/%m/%d")
+                query = f"label:{label_name} after:{since_date}"
+            else:
+                query = f"label:{label_name}"
+            
+            if self.config.verbose:
+                logger.info(f"Gmail query: {query}")
+            
             results = (
                 self.service.users()
                 .messages()
@@ -162,10 +153,11 @@ class GmailFetcher:
 
     def process_emails(
         self, download_dir: Optional[Path] = None
-    ) -> List[tuple[Path, str, str]]:
+    ) -> List[Tuple[str, Path, str, str]]:
         """
         Process unread emails, download PDF attachments
-        Returns list of tuples: (pdf_path, sender_email, email_subject)
+        Returns list of tuples: (msg_id, pdf_path, sender_email, email_subject)
+        Note: This method now only fetches emails; marking as processed is done separately
         """
         if download_dir is None:
             download_dir = Path(self.config.download_dir)
@@ -176,7 +168,10 @@ class GmailFetcher:
 
         for msg in messages:
             msg_id = msg["id"]
+            # Skip already processed emails
             if msg_id in self.processed_emails:
+                if self.config.verbose:
+                    logger.debug(f"Skipping already processed email: {msg_id}")
                 continue
 
             email_details = self.get_email_details(msg_id)
@@ -187,7 +182,15 @@ class GmailFetcher:
             if pdf_files:
                 # Attach sender email and subject to each PDF file
                 for pdf_path in pdf_files:
-                    unprocessed_files.append((pdf_path, sender_email, email_subject))
-            self._save_processed_email(msg_id)
+                    unprocessed_files.append((msg_id, pdf_path, sender_email, email_subject))
+            # Note: We do NOT mark as processed here anymore - that's done after successful event creation
 
         return unprocessed_files
+
+    def mark_processed(self, msg_id: str):
+        """Mark a specific email as processed (to be called after successful event creation)"""
+        self._save_processed_email(msg_id)
+
+    def get_processed_count(self) -> int:
+        """Get count of processed emails"""
+        return len(self.processed_emails)

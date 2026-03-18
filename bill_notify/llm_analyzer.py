@@ -1,10 +1,14 @@
 """LLM Analyzer - Using OpenRouter's LLM to extract due dates from PDFs"""
 
+import logging
 import re
 from datetime import date
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 import httpx
 from bill_notify.config import AppConfig
+
+
+logger = logging.getLogger(__name__)
 
 
 class LLMAnalyzer:
@@ -92,42 +96,47 @@ class LLMAnalyzer:
 
         return None
 
-    async def analyze_pdf(self, base64_pdfs: List[str], email_subject: str = "") -> tuple[Optional[date], Optional[str]]:
+    async def analyze_pdf(self, base64_pdfs: List[str], email_subject: str = "") -> Tuple[Optional[date], Optional[str], Optional[str]]:
         """
-        Analyze PDF documents, extract due date and generate event summary
+        Analyze PDF documents, extract due date, amount, and generate event summary
         Args:
             base64_pdfs: List of base64 encoded PDF data URLs (data:application/pdf;base64,...)
             email_subject: Email subject for context (to match language and style)
         Returns:
-            Tuple of (due_date, event_summary) if extracted, (None, None) otherwise
+            Tuple of (due_date, event_summary, amount) if extracted, (None, None, None) otherwise
         """
         # Build LLM prompt
         system_prompt = """You are a professional bill analysis assistant. Analyze the provided bill PDF document and extract:
 1. The payment due date
 2. A concise event title for calendar reminder (e.g., "AT&T Internet Bill", "Water Bill Payment")
+3. The bill amount (total amount due)
 
 Important rules:
 - Use the same language as the email subject for the summary
 - Return in this exact format:
 DUE_DATE: YYYY-MM-DD
 SUMMARY: Your event title here
+AMOUNT: [currency symbol][amount] (e.g., $1,234.56 or NT$ 1,234)
 
 - If no clear due date is found, return:
 DUE_DATE: NOT_FOUND
 SUMMARY: 
+AMOUNT:
 
 Examples:
 DUE_DATE: 2025-03-15
 SUMMARY: AT&T Internet Bill
+AMOUNT: $89.99
 
 DUE_DATE: NOT_FOUND
-SUMMARY:"""
+SUMMARY:
+AMOUNT:"""
 
         # Include email subject in user message for language context
         if email_subject:
-            user_message = f"Email subject: {email_subject}\n\nPlease analyze this bill document and extract the due date and a brief event title. Use the same language as the email subject."
+            user_message = f"Email subject: {email_subject}\n\nPlease analyze this bill document and extract the due date, a brief event title, and the total bill amount. Use the same language as the email subject."
         else:
-            user_message = "Please analyze this bill document and extract the due date and a brief event title."
+            user_message = "Please analyze this bill document and extract the due date, a brief event title, and the total bill amount."
 
         # Build message content with PDF file
         content = [
@@ -164,6 +173,7 @@ SUMMARY:"""
             "model": self.model,
             "messages": messages,
             "temperature": 0.1,
+            "max_tokens": 1000,
         }
 
         # Only include plugins if not using native engine
@@ -189,22 +199,23 @@ SUMMARY:"""
 
             # Extract response content
             if not data.get("choices") or len(data["choices"]) == 0:
-                print("No choices in response")
-                return None, None
+                logger.warning("No choices in LLM response")
+                return None, None, None
 
             message = data["choices"][0].get("message", {})
             message_content = message.get("content")
             
             if message_content is None:
-                print("LLM response content is None")
-                return None, None
+                logger.warning("LLM response content is None")
+                return None, None, None
 
             result_text = message_content.strip()
-            print(f"LLM response: {result_text}")
+            logger.debug(f"LLM response: {result_text}")
 
-            # Parse DUE_DATE and SUMMARY from response
+            # Parse DUE_DATE, SUMMARY, and AMOUNT from response
             due_date_str = None
             summary = None
+            amount = None
             
             for line in result_text.split('\n'):
                 line = line.strip()
@@ -212,27 +223,31 @@ SUMMARY:"""
                     due_date_str = line.split(':', 1)[1].strip()
                 elif line.upper().startswith('SUMMARY:'):
                     summary = line.split(':', 1)[1].strip()
+                elif line.upper().startswith('AMOUNT:'):
+                    amount = line.split(':', 1)[1].strip()
             
             # Check if due date was found
             if not due_date_str or due_date_str.upper() == "NOT_FOUND":
-                return None, None
+                logger.info("No due date found in LLM response")
+                return None, None, None
             
             # Parse the date
             extracted_date = self._extract_date_from_text(due_date_str)
             if extracted_date:
-                return extracted_date, summary or "Bill Payment"
+                logger.info(f"Extracted due date: {extracted_date}, summary: {summary}, amount: {amount}")
+                return extracted_date, summary or "Bill Payment", amount
             
             # If cannot parse date, return None
-            print(f"Cannot parse date: {due_date_str}")
-            return None, None
+            logger.warning(f"Cannot parse date: {due_date_str}")
+            return None, None, None
 
         except httpx.HTTPError as e:
-            print(f"HTTP error during LLM analysis: {e}")
+            logger.error(f"HTTP error during LLM analysis: {e}")
             response = getattr(e, 'response', None)
             if response is not None:
-                print(f"Response status: {response.status_code}")
-                print(f"Response body: {response.text}")
-            return None, None
+                logger.error(f"Response status: {response.status_code}")
+                logger.error(f"Response body: {response.text}")
+            return None, None, None
         except Exception as e:
-            print(f"LLM analysis failed: {e}")
-            return None, None
+            logger.error(f"LLM analysis failed: {e}", exc_info=True)
+            return None, None, None

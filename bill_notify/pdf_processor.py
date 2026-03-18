@@ -1,10 +1,14 @@
 """PDF Processor - Prepare PDF for LLM analysis via base64 encoding"""
 
 import base64
+import logging
 from io import BytesIO
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 from pypdf import PdfReader, PdfWriter
+
+
+logger = logging.getLogger(__name__)
 
 
 class PDFProcessor:
@@ -43,71 +47,74 @@ class PDFProcessor:
 
         return None
 
-    def _decrypt_pdf(self, pdf_path: Path, password: str) -> Optional[Path]:
+    def _process_pdf_bytes(self, pdf_bytes: bytes, password: Optional[str] = None) -> bytes:
         """
-        Decrypt PDF and save to temporary file
-        Returns path to decrypted PDF, or None if decryption failed
+        Process PDF bytes: decrypt if needed and return final bytes
+        Args:
+            pdf_bytes: Original PDF file bytes
+            password: Password for decryption (if needed)
+        Returns:
+            Processed PDF bytes (decrypted if password provided and correct, else original)
         """
-        try:
-            # Read entire file into memory to avoid file handle closure issues
-            pdf_bytes = pdf_path.read_bytes()
-            reader = PdfReader(BytesIO(pdf_bytes))
+        reader = PdfReader(BytesIO(pdf_bytes))
+        
+        # If not encrypted, return original bytes
+        if not reader.is_encrypted:
+            return pdf_bytes
+        
+        # If encrypted but no password provided, return original bytes (won't be usable but caller handles it)
+        if not password:
+            return pdf_bytes
+        
+        # Try to decrypt
+        if reader.decrypt(password):
+            # Write decrypted PDF to memory
+            writer = PdfWriter()
+            for page in reader.pages:
+                writer.add_page(page)
+            output_buffer = BytesIO()
+            writer.write(output_buffer)
+            decrypted_bytes = output_buffer.getvalue()
+            output_buffer.close()
+            logger.debug("PDF decrypted successfully")
+            return decrypted_bytes
+        else:
+            logger.warning("Decryption failed, using original file")
+            return pdf_bytes
 
-            if not reader.is_encrypted:
-                return pdf_path
-
-            # Try to decrypt
-            if reader.decrypt(password):
-                # Save decrypted PDF to temp file using PdfWriter
-                decrypted_path = pdf_path.parent / f"decrypted_{pdf_path.name}"
-                writer = PdfWriter()
-                for page in reader.pages:
-                    writer.add_page(page)
-                with open(decrypted_path, "wb") as output:
-                    writer.write(output)
-                return decrypted_path
-            else:
-                return None
-        except Exception as e:
-            print(f"    Decryption error: {e}")
-            return None
-
-    def process_pdf(self, pdf_path: Path, sender_email: str = "") -> List[str]:
+    def process_pdf(self, pdf_path: Path, sender_email: str = "") -> str:
         """
         Process PDF file, return base64-encoded PDF string
         Args:
             pdf_path: PDF file path
             sender_email: Sender email for password lookup
         Returns:
-            List containing a single base64 PDF string with data:application/pdf;base64, prefix
+            Base64 PDF string with data:application/pdf;base64, prefix
         """
         if not pdf_path.exists():
             raise FileNotFoundError(f"PDF file does not exist: {pdf_path}")
 
+        # Read PDF bytes once
+        pdf_bytes = pdf_path.read_bytes()
+        
         # Check if PDF needs decryption
         password = self._find_password(sender_email) if sender_email else None
-
-        working_pdf = pdf_path
+        
         if password:
-            print(f"  Attempting decryption with password for {sender_email}...")
-            decrypted_path = self._decrypt_pdf(pdf_path, password)
-            if decrypted_path:
-                working_pdf = decrypted_path
-                print("  ✓  PDF decrypted successfully")
+            logger.info(f"Attempting decryption with password for {sender_email}")
+            processed_bytes = self._process_pdf_bytes(pdf_bytes, password)
+            # Log if decryption actually happened (bytes changed)
+            if processed_bytes != pdf_bytes:
+                logger.info("PDF decrypted successfully")
             else:
-                print("  ⚠️  Decryption failed, trying without password")
-                # Continue with original file (might not be encrypted or wrong password)
+                logger.warning("Decryption failed or PDF was not encrypted, using original")
+        else:
+            # No password found for sender, skip decryption for this time
+            if sender_email:
+                logger.info(f"No password configured for {sender_email}, skipping decryption")
+            # Process as-is - will check encryption in _process_pdf_bytes
+            processed_bytes = self._process_pdf_bytes(pdf_bytes)
 
-        # Read PDF bytes and encode to base64
-        pdf_bytes = working_pdf.read_bytes()
-        base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-        data_url = f"data:application/pdf;base64,{base64_pdf}"
-
-        # Clean up decrypted temp file if created
-        if working_pdf != pdf_path and working_pdf.exists():
-            try:
-                working_pdf.unlink()
-            except OSError:
-                pass
-
-        return [data_url]
+        # Encode to base64
+        base64_pdf = base64.b64encode(processed_bytes).decode('utf-8')
+        return f"data:application/pdf;base64,{base64_pdf}"

@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, patch, MagicMock
 import json
+import pytest
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -30,6 +31,7 @@ def create_mock_config() -> AppConfig:
     )
 
 
+@pytest.mark.asyncio
 async def test_analyze_pdf_success():
     """Test successful PDF analysis with mocked response"""
     print("Testing analyze_pdf with successful response...")
@@ -73,6 +75,7 @@ async def test_analyze_pdf_success():
             return False
 
 
+@pytest.mark.asyncio
 async def test_analyze_pdf_not_found():
     """Test PDF analysis when due date not found"""
     print("\nTesting analyze_pdf with NOT_FOUND response...")
@@ -112,6 +115,7 @@ async def test_analyze_pdf_not_found():
             return False
 
 
+@pytest.mark.asyncio
 async def test_http_error_handling():
     """Test HTTP error handling"""
     print("\nTesting HTTP error handling...")
@@ -137,6 +141,7 @@ async def test_http_error_handling():
             return False
 
 
+@pytest.mark.asyncio
 async def test_request_payload():
     """Test that the request payload is correctly built"""
     print("\nTesting request payload construction...")

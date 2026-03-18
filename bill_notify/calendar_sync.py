@@ -1,15 +1,14 @@
 """Google Calendar sync module"""
 
-import json
+import logging
 from datetime import date, datetime, timedelta
-from pathlib import Path
-from typing import Any
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
+from typing import Optional
 from googleapiclient.errors import HttpError
-from bill_notify.config import AppConfig, SCOPES
+from bill_notify.auth_manager import AuthManager
+from bill_notify.config import AppConfig
+
+
+logger = logging.getLogger(__name__)
 
 
 class CalendarSync:
@@ -17,37 +16,11 @@ class CalendarSync:
 
     def __init__(self, config: AppConfig):
         self.config = config
-        self.service = self._authenticate()
-
-    def _authenticate(self) -> Any:
-        """OAuth 2.0 authentication"""
-        creds = None
-        token_path = Path(self.config.gmail.token_file)
-        creds_path = Path(self.config.gmail.credentials_file)
-
-        if token_path.exists():
-            creds = Credentials.from_authorized_user_info(
-                json.load(open(token_path)), SCOPES
-            )
-
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                if not creds_path.exists():
-                    raise FileNotFoundError(
-                        f"Please create OAuth 2.0 client credentials in Google Cloud Console and save to {creds_path}"
-                    )
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    str(creds_path), SCOPES
-                )
-                creds = flow.run_local_server(port=0)
-
-            token_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(token_path, "w") as token:
-                token.write(creds.to_json())
-
-        return build("calendar", "v3", credentials=creds)
+        auth_manager = AuthManager(
+            credentials_file=config.gmail.credentials_file,
+            token_file=config.gmail.token_file
+        )
+        self.service = auth_manager.build_service("calendar", "v3")
 
     def create_event(
         self,
@@ -96,17 +69,25 @@ class CalendarSync:
                 .insert(calendarId=self.config.calendar.calendar_id, body=event)
                 .execute()
             )
-            print(f"Created calendar event: {summary} - {start_date}")
+            logger.info(f"Created calendar event: {summary} - {start_date}")
             return event_result["id"]
         except HttpError as error:
             raise Exception(f"Failed to create calendar event: {error}")
 
-    def check_event_exists(self, due_date: date, summary_keywords: list[str]) -> bool:
+    def check_event_exists(
+        self,
+        due_date: date,
+        summary_keywords: list[str],
+        sender_email: Optional[str] = None,
+        pdf_filename: Optional[str] = None,
+    ) -> bool:
         """
         Check if similar event exists on specified date
         Args:
             due_date: Date
             summary_keywords: List of summary keywords
+            sender_email: Sender email to check for duplicates (if provided, checks description)
+            pdf_filename: PDF filename to check for duplicates (if provided, checks description)
         Returns:
             Whether event exists
         """
@@ -128,10 +109,32 @@ class CalendarSync:
 
             events = events_result.get("items", [])
             for event in events:
+                # First check by summary keywords (broad match)
                 summary = event.get("summary", "").lower()
-                for keyword in summary_keywords:
-                    if keyword.lower() in summary:
+                matches_keywords = any(
+                    keyword.lower() in summary for keyword in summary_keywords
+                )
+                
+                if not matches_keywords:
+                    continue
+                
+                # If sender or pdf filename provided, check description for source to avoid duplicates from different senders
+                if sender_email or pdf_filename:
+                    description = event.get("description", "").lower()
+                    
+                    # Check if this event is from the same sender
+                    if sender_email and sender_email.lower() in description:
                         return True
+                    
+                    # Check if this event is from the same PDF file
+                    if pdf_filename and pdf_filename.lower() in description:
+                        return True
+                    
+                    # If we have sender/pdf info but neither matches, continue checking other events
+                    continue
+                else:
+                    # No source info provided, use broad keyword match
+                    return True
 
             return False
         except HttpError as error:
