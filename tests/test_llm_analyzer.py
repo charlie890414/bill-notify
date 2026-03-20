@@ -77,17 +77,18 @@ async def test_analyze_pdf_success():
 
 @pytest.mark.asyncio
 async def test_analyze_pdf_not_found():
-    """Test PDF analysis when due date not found"""
-    print("\nTesting analyze_pdf with NOT_FOUND response...")
+    """Test PDF analysis when due date not found (informational document)"""
+    print("\nTesting analyze_pdf with NOT_FOUND response (non-payment document)...")
     
     config = create_mock_config()
     analyzer = LLMAnalyzer(config)
     
+    # Simulate a receipt or notification that doesn't require payment
     mock_response_data = {
         "choices": [
             {
                 "message": {
-                    "content": "NOT_FOUND",
+                    "content": "DUE_DATE: NOT_FOUND\nSUMMARY:\nAMOUNT:",
                     "role": "assistant"
                 }
             }
@@ -108,7 +109,7 @@ async def test_analyze_pdf_not_found():
         result = await analyzer.analyze_pdf([base64_pdf])
         
         if result is None:
-            print("✓ Correctly returned None for NOT_FOUND")
+            print("✓ Correctly returned None for non-payment document")
             return True
         else:
             print(f"✗ Expected None but got: {result}")

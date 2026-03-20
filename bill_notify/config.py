@@ -111,6 +111,7 @@ class AppConfig:
                 reminder_days_config = user_config.get("reminder_days", 3)
                 pdf_engine = user_config.get("pdf_engine", "pdf-text")
                 days_back_config = user_config.get("days_back", 7)
+                openrouter_model = user_config.get("model")
 
         # Apply CLI overrides
         if label is not None:
@@ -133,7 +134,7 @@ class AppConfig:
         return cls(
             gmail=GmailConfig(gmail_label=gmail_label, days_back=days_back_config),
             openrouter=OpenRouterConfig(
-                api_key=openrouter_api_key, pdf_engine=pdf_engine
+                api_key=openrouter_api_key, pdf_engine=pdf_engine, model=openrouter_model
             ),
             calendar=CalendarConfig(
                 calendar_id=calendar_id_config, reminder_days=reminder_days_config

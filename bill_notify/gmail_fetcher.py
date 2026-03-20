@@ -4,8 +4,9 @@ import base64
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 from googleapiclient.errors import HttpError
+from mailparser import MailParser
 from bill_notify.auth_manager import AuthManager
 from bill_notify.config import AppConfig
 
@@ -86,68 +87,72 @@ class GmailFetcher:
         except HttpError as error:
             raise Exception(f"Failed to get emails: {error}")
 
-    def get_email_details(self, msg_id: str) -> dict:
-        """Get email details"""
+    def get_email_details(self, msg_id: str) -> MailParser:
+        """Get email details in raw format and parse with mail-parser"""
         try:
             message = (
                 self.service.users()
                 .messages()
-                .get(userId="me", id=msg_id, format="full")
+                .get(userId="me", id=msg_id, format="raw")
                 .execute()
             )
-            return message
+            # Decode raw message data            
+            raw_data = base64.urlsafe_b64decode(message["raw"])
+            # Parse with mail-parser - needs email message object
+            from email.parser import BytesParser
+            email_message = BytesParser().parsebytes(raw_data)
+            mail = MailParser(email_message)
+            return mail
         except HttpError as error:
             raise Exception(f"Failed to get email details: {error}")
 
-    def get_sender_email(self, message: dict) -> str:
-        """Extract sender email address from message headers"""
-        headers = message.get("payload", {}).get("headers", [])
-        for header in headers:
-            if header.get("name", "").lower() == "from":
-                from_header = header.get("value", "")
-                # Extract email from format like: "Name <email@example.com>"
-                if "<" in from_header and ">" in from_header:
-                    start = from_header.find("<") + 1
-                    end = from_header.find(">")
-                    return from_header[start:end].strip()
-                else:
-                    return from_header.strip()
+    def get_sender_email(self, mail: MailParser) -> str:
+        """Extract sender email address from parsed mail"""
+        from_header = mail.from_
+        if from_header:
+            # from_str format: (name, email)
+            # mail-parser may return a list or string
+            if isinstance(from_header, list):
+                # Take first sender if multiple
+                return from_header[0][1] if from_header[0] else ""
+            else:
+                return from_header[1]
         return ""
 
-    def get_email_subject(self, message: dict) -> str:
-        """Extract email subject from message headers"""
-        headers = message.get("payload", {}).get("headers", [])
-        for header in headers:
-            if header.get("name", "").lower() == "subject":
-                return header.get("value", "").strip()
+    def get_email_subject(self, mail: MailParser) -> str:
+        """Extract email subject from parsed mail"""
+        subject = mail.subject
+        if subject:
+            # mail-parser may return a list or string
+            if isinstance(subject, list):
+                subject_str = str(subject[0]) if subject[0] else ""
+            else:
+                subject_str = str(subject)
+            return subject_str.strip()
         return ""
 
-    def get_pdf_attachments(self, message: dict, download_dir: Path) -> List[Path]:
-        """Download PDF attachments from email"""
+    def get_pdf_attachments(self, mail, msg_id: str, download_dir: Path):
         downloaded_files = []
-        msg_id = message["id"]
 
-        if "payload" not in message or "parts" not in message["payload"]:
-            return downloaded_files
+        for i, attachment in enumerate(mail.attachments):
+            filename = attachment.get("filename")
+            content_type = attachment.get("mail_content_type", "")
+            file_data = base64.b64decode(attachment.get("payload"))
 
-        parts = message["payload"]["parts"]
-        for part in parts:
-            if part.get("filename", "").lower().endswith(".pdf"):
-                attachment_id = part["body"]["attachmentId"]
-                attachment = (
-                    self.service.users()
-                    .messages()
-                    .attachments()
-                    .get(userId="me", messageId=msg_id, id=attachment_id)
-                    .execute()
-                )
-                file_data = base64.urlsafe_b64decode(attachment["data"])
-                filename = part["filename"]
+            is_pdf = (
+                (filename and filename.lower().endswith(".pdf"))
+                or content_type == "application/pdf"
+            )
 
-                download_path = download_dir / f"{msg_id}_{filename}"
-                with open(download_path, "wb") as f:
-                    f.write(file_data)
-                downloaded_files.append(download_path)
+            if not is_pdf:
+                continue
+
+            download_path = download_dir / f"{msg_id}_{filename}"
+
+            with open(download_path, "wb") as f:
+                f.write(file_data)
+
+            downloaded_files.append(download_path)
 
         return downloaded_files
 
@@ -174,10 +179,10 @@ class GmailFetcher:
                     logger.debug(f"Skipping already processed email: {msg_id}")
                 continue
 
-            email_details = self.get_email_details(msg_id)
-            sender_email = self.get_sender_email(email_details)
-            email_subject = self.get_email_subject(email_details)
-            pdf_files = self.get_pdf_attachments(email_details, download_dir)
+            mail = self.get_email_details(msg_id)
+            sender_email = self.get_sender_email(mail)
+            email_subject = self.get_email_subject(mail)
+            pdf_files = self.get_pdf_attachments(mail, msg_id, download_dir)
 
             if pdf_files:
                 # Attach sender email and subject to each PDF file

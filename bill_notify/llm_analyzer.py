@@ -106,8 +106,21 @@ class LLMAnalyzer:
             Tuple of (due_date, event_summary, amount) if extracted, (None, None, None) otherwise
         """
         # Build LLM prompt
-        system_prompt = """You are a professional bill analysis assistant. Analyze the provided bill PDF document and extract:
-1. The payment due date
+        system_prompt = """You are a professional bill analysis assistant. Analyze the provided PDF document and determine if it is a bill requiring future payment.
+
+CRITICAL RULE: Only extract a due date if the document is a bill/invoice that requires a future payment. DO NOT extract dates from:
+- Receipts or payment confirmations (already paid)
+- Account statements or summaries
+- Notifications or alerts about bills
+- Informational documents
+
+For documents that do NOT require payment, return:
+DUE_DATE: NOT_FOUND
+SUMMARY: 
+AMOUNT:
+
+For bills requiring payment, extract:
+1. The payment due date (the date by which payment must be made)
 2. A concise event title for calendar reminder (e.g., "AT&T Internet Bill", "Water Bill Payment")
 3. The bill amount (total amount due)
 
@@ -118,18 +131,14 @@ DUE_DATE: YYYY-MM-DD
 SUMMARY: Your event title here
 AMOUNT: [currency symbol][amount] (e.g., $1,234.56 or NT$ 1,234)
 
-- If no clear due date is found, return:
-DUE_DATE: NOT_FOUND
-SUMMARY: 
-AMOUNT:
-
-Examples:
+Examples of bills requiring payment:
 DUE_DATE: 2025-03-15
 SUMMARY: AT&T Internet Bill
 AMOUNT: $89.99
 
+Examples of documents NOT requiring payment:
 DUE_DATE: NOT_FOUND
-SUMMARY:
+SUMMARY: 
 AMOUNT:"""
 
         # Include email subject in user message for language context
