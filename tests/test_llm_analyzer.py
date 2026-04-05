@@ -76,19 +76,19 @@ async def test_analyze_pdf_success():
 
 
 @pytest.mark.asyncio
-async def test_analyze_pdf_not_found():
-    """Test PDF analysis when due date not found (informational document)"""
-    print("\nTesting analyze_pdf with NOT_FOUND response (non-payment document)...")
+async def test_analyze_pdf_not_bill():
+    """Test PDF analysis when document is determined NOT to be a bill requiring payment"""
+    print("\nTesting analyze_pdf with NOT_BILL response (receipt, statement, etc.)...")
     
     config = create_mock_config()
     analyzer = LLMAnalyzer(config)
     
-    # Simulate a receipt or notification that doesn't require payment
+    # Simulate a receipt or statement that doesn't require payment
     mock_response_data = {
         "choices": [
             {
                 "message": {
-                    "content": "DUE_DATE: NOT_FOUND\nSUMMARY:\nAMOUNT:",
+                    "content": "DUE_DATE: NOT_BILL\nSUMMARY:\nAMOUNT:",
                     "role": "assistant"
                 }
             }
@@ -108,11 +108,54 @@ async def test_analyze_pdf_not_found():
         base64_pdf = "data:application/pdf;base64,JVBERi0xLjQKJcOkw7zD..."
         result = await analyzer.analyze_pdf([base64_pdf])
         
-        if result is None:
-            print("✓ Correctly returned None for non-payment document")
+        # Should return (False, None, None) for NOT_BILL
+        if result == (False, None, None):
+            print("✓ Correctly returned (False, None, None) for non-bill document")
             return True
         else:
-            print(f"✗ Expected None but got: {result}")
+            print(f"✗ Expected (False, None, None) but got: {result}")
+            return False
+
+
+@pytest.mark.asyncio
+async def test_analyze_pdf_extraction_failed():
+    """Test PDF analysis when due date extraction failed"""
+    print("\nTesting analyze_pdf with EXTRACTION_FAILED response...")
+    
+    config = create_mock_config()
+    analyzer = LLMAnalyzer(config)
+    
+    # Simulate a document where due date cannot be extracted
+    mock_response_data = {
+        "choices": [
+            {
+                "message": {
+                    "content": "DUE_DATE: EXTRACTION_FAILED\nSUMMARY:\nAMOUNT:",
+                    "role": "assistant"
+                }
+            }
+        ]
+    }
+    
+    mock_response = MagicMock()
+    mock_response.json.return_value = mock_response_data
+    mock_response.raise_for_status = MagicMock()
+    
+    with patch('httpx.AsyncClient') as mock_client_class:
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
+        
+        base64_pdf = "data:application/pdf;base64,JVBERi0xLjQKJcOkw7zD..."
+        result = await analyzer.analyze_pdf([base64_pdf])
+        
+        # Should return (None, None, None) for extraction failure
+        if result is None or result == (None, None, None):
+            print("✓ Correctly returned (None, None, None) for extraction failure")
+            return True
+        else:
+            print(f"✗ Expected (None, None, None) but got: {result}")
             return False
 
 
@@ -221,7 +264,8 @@ async def run_all_tests():
     
     tests = [
         test_analyze_pdf_success,
-        test_analyze_pdf_not_found,
+        test_analyze_pdf_not_bill,
+        test_analyze_pdf_extraction_failed,
         test_http_error_handling,
         test_request_payload,
     ]

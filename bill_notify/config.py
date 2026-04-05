@@ -102,6 +102,7 @@ class AppConfig:
         reminder_days_config = 3
         pdf_engine = "pdf-text"
         days_back_config = 7
+        openrouter_model = "stepfun/step-3.5-flash:free"
 
         if os.path.exists(config_path):
             with open(config_path, "r", encoding="utf-8") as f:
@@ -111,7 +112,7 @@ class AppConfig:
                 reminder_days_config = user_config.get("reminder_days", 3)
                 pdf_engine = user_config.get("pdf_engine", "pdf-text")
                 days_back_config = user_config.get("days_back", 7)
-                openrouter_model = user_config.get("model")
+                openrouter_model = user_config.get("model", openrouter_model)
 
         # Apply CLI overrides
         if label is not None:

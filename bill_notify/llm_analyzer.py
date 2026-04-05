@@ -3,7 +3,7 @@
 import logging
 import re
 from datetime import date
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Tuple, Union
 import httpx
 from bill_notify.config import AppConfig
 
@@ -96,14 +96,16 @@ class LLMAnalyzer:
 
         return None
 
-    async def analyze_pdf(self, base64_pdfs: List[str], email_subject: str = "") -> Tuple[Optional[date], Optional[str], Optional[str]]:
+    async def analyze_pdf(self, base64_pdfs: List[str], email_subject: str = "") -> Tuple[Union[date, bool, None], Optional[str], Optional[str]]:
         """
         Analyze PDF documents, extract due date, amount, and generate event summary
         Args:
             base64_pdfs: List of base64 encoded PDF data URLs (data:application/pdf;base64,...)
             email_subject: Email subject for context (to match language and style)
         Returns:
-            Tuple of (due_date, event_summary, amount) if extracted, (None, None, None) otherwise
+            Tuple of (due_date, event_summary, amount) if extracted for bill requiring payment
+            Tuple of (None, None, None) if due date cannot be extracted (technical issues) - skip, don't log
+            Tuple of (False, None, None) if document is determined NOT to be a bill requiring payment - skip but log
         """
         # Build LLM prompt
         system_prompt = """You are a professional bill analysis assistant. Analyze the provided PDF document and determine if it is a bill requiring future payment.
@@ -114,8 +116,13 @@ CRITICAL RULE: Only extract a due date if the document is a bill/invoice that re
 - Notifications or alerts about bills
 - Informational documents
 
-For documents that do NOT require payment, return:
-DUE_DATE: NOT_FOUND
+For documents where you CANNOT extract a due date (technical issue, missing information, etc.), return:
+DUE_DATE: EXTRACTION_FAILED
+SUMMARY: 
+AMOUNT:
+
+For documents that do NOT require payment (receipts, statements, etc.), return:
+DUE_DATE: NOT_BILL
 SUMMARY: 
 AMOUNT:
 
@@ -136,8 +143,13 @@ DUE_DATE: 2025-03-15
 SUMMARY: AT&T Internet Bill
 AMOUNT: $89.99
 
+Examples of documents where due date cannot be extracted:
+DUE_DATE: EXTRACTION_FAILED
+SUMMARY: 
+AMOUNT:
+
 Examples of documents NOT requiring payment:
-DUE_DATE: NOT_FOUND
+DUE_DATE: NOT_BILL
 SUMMARY: 
 AMOUNT:"""
 
@@ -235,18 +247,24 @@ AMOUNT:"""
                 elif line.upper().startswith('AMOUNT:'):
                     amount = line.split(':', 1)[1].strip()
             
-            # Check if due date was found
-            if not due_date_str or due_date_str.upper() == "NOT_FOUND":
-                logger.info("No due date found in LLM response")
+            # Check the due date status
+            if not due_date_str:
+                logger.warning("No DUE_DATE field found in LLM response")
                 return None, None, None
+            elif due_date_str.upper() == "EXTRACTION_FAILED":
+                logger.info("LLM indicated due date extraction failed")
+                return None, None, None
+            elif due_date_str.upper() == "NOT_BILL":
+                logger.info("LLM determined document is not a bill requiring payment")
+                return False, None, None
             
-            # Parse the date
+            # Parse the date for actual bills
             extracted_date = self._extract_date_from_text(due_date_str)
             if extracted_date:
                 logger.info(f"Extracted due date: {extracted_date}, summary: {summary}, amount: {amount}")
                 return extracted_date, summary or "Bill Payment", amount
             
-            # If cannot parse date, return None
+            # If cannot parse date, treat as extraction failure
             logger.warning(f"Cannot parse date: {due_date_str}")
             return None, None, None
 

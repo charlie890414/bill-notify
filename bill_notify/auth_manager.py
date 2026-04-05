@@ -99,7 +99,7 @@ class AuthManager:
             Authenticated service object
         """
         creds = self.get_credentials()
-        return build(api_name, api_version, credentials=creds, **kwargs)
+        return build(api_name, api_version, credentials=creds, cache_discovery=False, **kwargs)
 
     def revoke_token(self):
         """Delete stored token to force re-authentication on next run"""

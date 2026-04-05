@@ -6,7 +6,7 @@ import logging
 import sys
 from pathlib import Path
 from datetime import datetime, date
-from typing import Optional, Tuple
+from typing import Tuple, Union, Literal
 from bill_notify.config import AppConfig
 from bill_notify.gmail_fetcher import GmailFetcher
 from bill_notify.pdf_processor import PDFProcessor
@@ -29,11 +29,13 @@ class BillNotify:
 
     async def process_single_pdf(
         self, pdf_path: Path, sender_email: str = "", email_subject: str = ""
-    ) -> Optional[date]:
+    ) -> Union[date, Literal[False], None]:
         """
         Process a single PDF file, extract due date and create calendar event
         Returns:
-            Due date if successful
+            Due date (date) if successful and event created
+            False (Literal[False]) if document is not a bill requiring payment (but should be marked as processed)
+            None if extraction failed or other error (should not be marked as processed)
         """
         if self.config.verbose:
             logger.info(f"\nProcessing file: {pdf_path.name}")
@@ -54,10 +56,18 @@ class BillNotify:
             result = await self.llm_analyzer.analyze_pdf([base64_pdf], email_subject)
             due_date, llm_summary, amount = result
 
+            # Handle NOT_BILL case: document is not a bill requiring payment
+            if due_date is False:
+                logger.info(f"Document {pdf_path.name} is not a bill requiring payment, skipping")
+                return False
+
+            # Handle EXTRACTION_FAILED or other None case
             if due_date is None:
                 logger.warning(f"Could not extract due date from {pdf_path.name}")
                 return None
 
+            # Type narrowing: due_date must be a date object here (not False, not None)
+            assert isinstance(due_date, date)
             logger.info(f"Extracted due date: {due_date}")
             if amount:
                 logger.info(f"Extracted amount: {amount}")
@@ -150,11 +160,18 @@ class BillNotify:
         successful_emails = []  # Track (msg_id, pdf_path) that succeeded
 
         for msg_id, pdf_path, sender_email, email_subject in pdf_files:
-            due_date = await self.process_single_pdf(pdf_path, sender_email, email_subject)
-            if due_date:
+            result = await self.process_single_pdf(pdf_path, sender_email, email_subject)
+            # result can be: date (success), False (not a bill), or None (extraction failed)
+            if result is not False and result is not None:
+                # date - success
                 processed_count += 1
                 successful_emails.append((msg_id, pdf_path))
+            elif result is False:
+                # False (not a bill) count as skipped
+                skipped_count += 1
+                successful_emails.append((msg_id, pdf_path))
             else:
+                # None (extraction failed) count as skipped
                 skipped_count += 1
 
         # 3. Mark emails as processed only if not in dry-run mode and event was created

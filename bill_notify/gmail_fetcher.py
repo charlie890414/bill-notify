@@ -4,7 +4,7 @@ import base64
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple
 from googleapiclient.errors import HttpError
 from mailparser import MailParser
 from bill_notify.auth_manager import AuthManager
