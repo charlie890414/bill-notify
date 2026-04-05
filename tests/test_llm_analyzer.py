@@ -6,12 +6,14 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch, MagicMock
 import json
 import pytest
+from datetime import date
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from bill_notify.config import AppConfig, OpenRouterConfig, GmailConfig, CalendarConfig
 from bill_notify.llm_analyzer import LLMAnalyzer
+from bill_notify.exceptions import LLMAnalysisError
 
 
 def create_mock_config() -> AppConfig:
@@ -39,12 +41,12 @@ async def test_analyze_pdf_success():
     config = create_mock_config()
     analyzer = LLMAnalyzer(config)
     
-    # Mock response data
+    # Mock response data with proper format
     mock_response_data = {
         "choices": [
             {
                 "message": {
-                    "content": "2025-03-15",
+                    "content": "DUE_DATE: 2025-03-15\nSUMMARY: Test Bill\nAMOUNT: $100.00",
                     "role": "assistant"
                 }
             }
@@ -68,7 +70,9 @@ async def test_analyze_pdf_success():
         result = await analyzer.analyze_pdf([base64_pdf])
         
         if result:
-            print(f"✓ Successfully extracted date: {result}")
+            due_date, summary, amount = result
+            assert due_date is not None and isinstance(due_date, date)
+            print(f"✓ Successfully extracted date: {due_date}, summary: {summary}, amount: {amount}")
             return True
         else:
             print("✗ Failed to extract date")
@@ -175,13 +179,17 @@ async def test_http_error_handling():
         mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
         
         base64_pdf = "data:application/pdf;base64,JVBERi0xLjQKJcOkw7zD..."
-        result = await analyzer.analyze_pdf([base64_pdf])
         
-        if result is None:
-            print("✓ Correctly handled HTTP error and returned None")
+        # Should raise LLMAnalysisError
+        try:
+            await analyzer.analyze_pdf([base64_pdf])
+            print("✗ Expected LLMAnalysisError to be raised")
+            return False
+        except LLMAnalysisError:
+            print("✓ Correctly raised LLMAnalysisError on HTTP error")
             return True
-        else:
-            print(f"✗ Expected None but got: {result}")
+        except Exception as e:
+            print(f"✗ Expected LLMAnalysisError but got: {type(e).__name__}: {e}")
             return False
 
 
@@ -200,7 +208,7 @@ async def test_request_payload():
         nonlocal captured_payload
         captured_payload = kwargs.get('json', {})
         mock_response = MagicMock()
-        mock_response.json.return_value = {"choices": [{"message": {"content": "2025-03-15"}}]}
+        mock_response.json.return_value = {"choices": [{"message": {"content": "DUE_DATE: 2025-03-15\nSUMMARY: Test\nAMOUNT: $0"}}]}
         mock_response.raise_for_status = MagicMock()
         return mock_response
     

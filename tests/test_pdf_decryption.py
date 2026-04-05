@@ -12,6 +12,7 @@ except ImportError:
     sys.exit(1)
 
 from bill_notify.pdf_processor import PDFProcessor
+from bill_notify.exceptions import PDFProcessingError
 
 
 def create_encrypted_pdf(password: str = "test123") -> Path:
@@ -89,8 +90,8 @@ def test_pdf_without_password():
 
 
 def test_wrong_password():
-    """Test PDF with wrong password falls back gracefully"""
-    print("\nTesting wrong password fallback...")
+    """Test PDF with wrong password raises PDFProcessingError"""
+    print("\nTesting wrong password raises exception...")
     pdf_path = create_encrypted_pdf("correct_password")
     
     # Configure with wrong password
@@ -98,12 +99,10 @@ def test_wrong_password():
     
     try:
         result = processor.process_pdf(pdf_path, sender_email="test@example.com")
-        # Should still return base64 (of original encrypted PDF) even if decryption fails
-        assert result and result.startswith("data:application/pdf;base64,"), "Failed to handle wrong password gracefully"
-        print("✓ Graceful fallback on wrong password")
-    except Exception as e:
-        print(f"✗ Unexpected error: {e}")
-        raise
+        print(f"✗ Expected PDFProcessingError but got result: {result}")
+        raise AssertionError("Should have raised PDFProcessingError")
+    except PDFProcessingError as e:
+        print(f"✓ Correctly raised PDFProcessingError: {e}")
     finally:
         if pdf_path.exists():
             pdf_path.unlink()

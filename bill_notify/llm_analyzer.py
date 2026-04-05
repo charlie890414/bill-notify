@@ -6,6 +6,7 @@ from datetime import date
 from typing import Optional, List, Dict, Any, Tuple, Union
 import httpx
 from bill_notify.config import AppConfig
+from bill_notify.exceptions import LLMAnalysisError
 
 
 logger = logging.getLogger(__name__)
@@ -220,15 +221,13 @@ AMOUNT:"""
 
             # Extract response content
             if not data.get("choices") or len(data["choices"]) == 0:
-                logger.warning("No choices in LLM response")
-                return None, None, None
+                raise LLMAnalysisError("No choices in LLM response")
 
             message = data["choices"][0].get("message", {})
             message_content = message.get("content")
             
             if message_content is None:
-                logger.warning("LLM response content is None")
-                return None, None, None
+                raise LLMAnalysisError("LLM response content is None")
 
             result_text = message_content.strip()
             logger.debug(f"LLM response: {result_text}")
@@ -249,8 +248,7 @@ AMOUNT:"""
             
             # Check the due date status
             if not due_date_str:
-                logger.warning("No DUE_DATE field found in LLM response")
-                return None, None, None
+                raise LLMAnalysisError("No DUE_DATE field found in LLM response")
             elif due_date_str.upper() == "EXTRACTION_FAILED":
                 logger.info("LLM indicated due date extraction failed")
                 return None, None, None
@@ -264,9 +262,8 @@ AMOUNT:"""
                 logger.info(f"Extracted due date: {extracted_date}, summary: {summary}, amount: {amount}")
                 return extracted_date, summary or "Bill Payment", amount
             
-            # If cannot parse date, treat as extraction failure
-            logger.warning(f"Cannot parse date: {due_date_str}")
-            return None, None, None
+            # If cannot parse date, raise error
+            raise LLMAnalysisError(f"Cannot parse due date: {due_date_str}")
 
         except httpx.HTTPError as e:
             logger.error(f"HTTP error during LLM analysis: {e}")
@@ -274,7 +271,9 @@ AMOUNT:"""
             if response is not None:
                 logger.error(f"Response status: {response.status_code}")
                 logger.error(f"Response body: {response.text}")
-            return None, None, None
+            raise LLMAnalysisError(f"HTTP error during LLM analysis: {e}", original_error=e) from e
+        except LLMAnalysisError:
+            raise
         except Exception as e:
             logger.error(f"LLM analysis failed: {e}", exc_info=True)
-            return None, None, None
+            raise LLMAnalysisError(f"LLM analysis failed: {e}", original_error=e) from e

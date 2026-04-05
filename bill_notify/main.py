@@ -12,6 +12,7 @@ from bill_notify.gmail_fetcher import GmailFetcher
 from bill_notify.pdf_processor import PDFProcessor
 from bill_notify.llm_analyzer import LLMAnalyzer
 from bill_notify.calendar_sync import CalendarSync
+from bill_notify.exceptions import GmailError, CalendarError, PDFProcessingError, LLMAnalysisError
 
 
 logger = logging.getLogger(__name__)
@@ -122,6 +123,26 @@ class BillNotify:
 
             return due_date
 
+        except GmailError as e:
+            logger.error(f"Gmail operation failed: {e}")
+            if e.original_error:
+                logger.debug(f"Original error: {e.original_error}", exc_info=True)
+            return None
+        except CalendarError as e:
+            logger.error(f"Calendar operation failed: {e}")
+            if e.original_error:
+                logger.debug(f"Original error: {e.original_error}", exc_info=True)
+            return None
+        except PDFProcessingError as e:
+            logger.error(f"PDF processing failed: {e}")
+            if e.original_error:
+                logger.debug(f"Original error: {e.original_error}", exc_info=True)
+            return None
+        except LLMAnalysisError as e:
+            logger.error(f"LLM analysis failed: {e}")
+            if e.original_error:
+                logger.debug(f"Original error: {e.original_error}", exc_info=True)
+            return None
         except Exception as e:
             logger.error(f"Processing failed: {e}", exc_info=True)
             return None
@@ -146,7 +167,13 @@ class BillNotify:
 
         # 1. Download PDFs from Gmail
         logger.info("\n[1/3] Fetching PDF attachments from Gmail...")
-        pdf_files = self.gmail_fetcher.process_emails()
+        try:
+            pdf_files = self.gmail_fetcher.process_emails()
+        except GmailError as e:
+            logger.error(f"Failed to fetch emails from Gmail: {e}")
+            if e.original_error:
+                logger.debug(f"Original error: {e.original_error}", exc_info=True)
+            return 0, 0
         logger.info(f"Downloaded {len(pdf_files)} PDF files")
 
         if not pdf_files:
@@ -177,9 +204,13 @@ class BillNotify:
         # 3. Mark emails as processed only if not in dry-run mode and event was created
         if not self.config.dry_run and successful_emails:
             logger.info("\n[3/3] Marking emails as processed...")
-            for msg_id, pdf_path in successful_emails:
-                self.gmail_fetcher.mark_processed(msg_id)
-            logger.info(f"Marked {len(successful_emails)} emails as processed")
+            try:
+                for msg_id, pdf_path in successful_emails:
+                    self.gmail_fetcher.mark_processed(msg_id)
+                logger.info(f"Marked {len(successful_emails)} emails as processed")
+            except GmailError as e:
+                logger.error(f"Failed to mark emails as processed: {e}")
+                # Continue - emails will be retried on next run
         elif self.config.dry_run:
             logger.info("\n[3/3] Dry run mode - emails NOT marked as processed")
 
@@ -233,7 +264,7 @@ async def main():
         notifier = BillNotify(config)
         await notifier.run()
     except ValueError as e:
-        logger.error(f"Configuration error: {e}")
+        logger.exception(f"Configuration error: {e}")
         sys.exit(1)
     except FileNotFoundError as e:
         logger.error(f"File error: {e}")

@@ -9,6 +9,7 @@ from googleapiclient.errors import HttpError
 from mailparser import MailParser
 from bill_notify.auth_manager import AuthManager
 from bill_notify.config import AppConfig
+from bill_notify.exceptions import GmailError
 
 
 logger = logging.getLogger(__name__)
@@ -60,7 +61,7 @@ class GmailFetcher:
                 f"Label '{label_name}' does not exist. Please create it in Gmail first"
             )
         except HttpError as error:
-            raise Exception(f"Failed to get label: {error}")
+            raise GmailError(f"Failed to get label: {error}") from error
 
     def get_emails_with_label(self, label_name: str) -> List[dict]:
         """Get unread emails with specific label within the last N days"""
@@ -85,7 +86,7 @@ class GmailFetcher:
             messages = results.get("messages", [])
             return messages
         except HttpError as error:
-            raise Exception(f"Failed to get emails: {error}")
+            raise GmailError(f"Failed to get emails: {error}") from error
 
     def get_email_details(self, msg_id: str) -> MailParser:
         """Get email details in raw format and parse with mail-parser"""
@@ -104,7 +105,7 @@ class GmailFetcher:
             mail = MailParser(email_message)
             return mail
         except HttpError as error:
-            raise Exception(f"Failed to get email details: {error}")
+            raise GmailError(f"Failed to get email details: {error}") from error
 
     def get_sender_email(self, mail: MailParser) -> str:
         """Extract sender email address from parsed mail"""
@@ -137,6 +138,8 @@ class GmailFetcher:
         for i, attachment in enumerate(mail.attachments):
             filename = attachment.get("filename")
             content_type = attachment.get("mail_content_type", "")
+            if "application/pdf" != content_type:
+                continue
             file_data = base64.b64decode(attachment.get("payload"))
 
             is_pdf = (

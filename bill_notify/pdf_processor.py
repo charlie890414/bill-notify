@@ -6,6 +6,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Optional
 from pypdf import PdfReader, PdfWriter
+from bill_notify.exceptions import PDFProcessingError
 
 
 logger = logging.getLogger(__name__)
@@ -55,16 +56,24 @@ class PDFProcessor:
             password: Password for decryption (if needed)
         Returns:
             Processed PDF bytes (decrypted if password provided and correct, else original)
+        Raises:
+            PDFProcessingError: If PDF is encrypted and decryption fails with provided password
         """
-        reader = PdfReader(BytesIO(pdf_bytes))
+        try:
+            reader = PdfReader(BytesIO(pdf_bytes))
+        except Exception as e:
+            raise PDFProcessingError(f"Failed to read PDF: {e}", original_error=e) from e
         
         # If not encrypted, return original bytes
         if not reader.is_encrypted:
             return pdf_bytes
         
-        # If encrypted but no password provided, return original bytes (won't be usable but caller handles it)
+        # If encrypted but no password provided, raise error
         if not password:
-            return pdf_bytes
+            raise PDFProcessingError(
+                "PDF is encrypted but no password provided",
+                original_error=None
+            )
         
         # Try to decrypt
         if reader.decrypt(password):
@@ -79,8 +88,10 @@ class PDFProcessor:
             logger.debug("PDF decrypted successfully")
             return decrypted_bytes
         else:
-            logger.warning("Decryption failed, using original file")
-            return pdf_bytes
+            raise PDFProcessingError(
+                "PDF decryption failed - incorrect password",
+                original_error=None
+            )
 
     def process_pdf(self, pdf_path: Path, sender_email: str = "") -> str:
         """
@@ -90,12 +101,17 @@ class PDFProcessor:
             sender_email: Sender email for password lookup
         Returns:
             Base64 PDF string with data:application/pdf;base64, prefix
+        Raises:
+            PDFProcessingError: If PDF processing fails (decryption, corruption, etc.)
         """
         if not pdf_path.exists():
             raise FileNotFoundError(f"PDF file does not exist: {pdf_path}")
 
         # Read PDF bytes once
-        pdf_bytes = pdf_path.read_bytes()
+        try:
+            pdf_bytes = pdf_path.read_bytes()
+        except Exception as e:
+            raise PDFProcessingError(f"Failed to read PDF file: {e}", original_error=e) from e
         
         # Check if PDF needs decryption
         password = self._find_password(sender_email) if sender_email else None
@@ -103,18 +119,17 @@ class PDFProcessor:
         if password:
             logger.info(f"Attempting decryption with password for {sender_email}")
             processed_bytes = self._process_pdf_bytes(pdf_bytes, password)
-            # Log if decryption actually happened (bytes changed)
-            if processed_bytes != pdf_bytes:
-                logger.info("PDF decrypted successfully")
-            else:
-                logger.warning("Decryption failed or PDF was not encrypted, using original")
+            logger.info("PDF processed successfully")
         else:
-            # No password found for sender, skip decryption for this time
+            # No password found for sender
             if sender_email:
-                logger.info(f"No password configured for {sender_email}, skipping decryption")
-            # Process as-is - will check encryption in _process_pdf_bytes
+                logger.info(f"No password configured for {sender_email}")
+            # Process as-is - _process_pdf_bytes will check encryption and raise if needed
             processed_bytes = self._process_pdf_bytes(pdf_bytes)
 
         # Encode to base64
-        base64_pdf = base64.b64encode(processed_bytes).decode('utf-8')
+        try:
+            base64_pdf = base64.b64encode(processed_bytes).decode('utf-8')
+        except Exception as e:
+            raise PDFProcessingError(f"Failed to encode PDF to base64: {e}", original_error=e) from e
         return f"data:application/pdf;base64,{base64_pdf}"

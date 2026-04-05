@@ -6,6 +6,7 @@ from typing import Optional
 from googleapiclient.errors import HttpError
 from bill_notify.auth_manager import AuthManager
 from bill_notify.config import AppConfig
+from bill_notify.exceptions import CalendarError
 
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,7 @@ class CalendarSync:
             logger.info(f"Created calendar event: {summary} - {start_date}")
             return event_result["id"]
         except HttpError as error:
-            raise Exception(f"Failed to create calendar event: {error}")
+            raise CalendarError(f"Failed to create calendar event: {error}") from error
 
     def check_event_exists(
         self,
@@ -138,4 +139,4 @@ class CalendarSync:
 
             return False
         except HttpError as error:
-            raise Exception(f"Failed to check event: {error}")
+            raise CalendarError(f"Failed to check event: {error}") from error
