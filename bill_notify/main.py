@@ -49,12 +49,12 @@ class BillNotify:
             # 1. Process PDF (decrypt if needed, encode to base64)
             if self.config.verbose:
                 logger.info("Processing PDF...")
-            base64_pdf = self.pdf_processor.process_pdf(pdf_path, sender_email)
+            pdf_context = self.pdf_processor.process_pdf(pdf_path, sender_email)
 
             # 2. LLM analysis to extract due date, amount, and event summary
             if self.config.verbose:
                 logger.info("Using LLM to analyze due date...")
-            result = await self.llm_analyzer.analyze_pdf([base64_pdf], email_subject)
+            result = await self.llm_analyzer.analyze_pdf(pdf_context, email_subject)
             due_date, llm_summary, amount = result
 
             # Handle NOT_BILL case: document is not a bill requiring payment
@@ -249,7 +249,8 @@ async def main():
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             handlers=[
                 logging.StreamHandler(sys.stdout)
-            ]
+            ],
+            force=True
         )
         
         config = AppConfig.load(

@@ -13,6 +13,9 @@ dependencies = [
     "pyyaml>=6.0.1",
     "pypdf>=4.0.0",
     "mail-parser>=3.13.0",
+    "paddleocr==3.3.0",
+    "paddlepaddle==3.2.0",
+    "reportlab>=4.4.10",
 ]
 
 [dependency-groups]
@@ -26,3 +29,6 @@ bill-notify = "bill_notify.main:cli"
 
 [tool.setuptools]
 packages = ["bill_notify"]
+
+[tool.uv]
+package = true

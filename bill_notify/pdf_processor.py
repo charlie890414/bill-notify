@@ -7,7 +7,9 @@ from pathlib import Path
 from typing import Optional
 from pypdf import PdfReader, PdfWriter
 from bill_notify.exceptions import PDFProcessingError
+from paddleocr import PaddleOCR
 
+ocr = PaddleOCR(lang='chinese_cht')
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +50,9 @@ class PDFProcessor:
 
         return None
 
-    def _process_pdf_bytes(self, pdf_bytes: bytes, password: Optional[str] = None) -> bytes:
+    def _process_pdf_bytes(
+        self, pdf_bytes: bytes, password: Optional[str] = None
+    ) -> bytes:
         """
         Process PDF bytes: decrypt if needed and return final bytes
         Args:
@@ -62,19 +66,20 @@ class PDFProcessor:
         try:
             reader = PdfReader(BytesIO(pdf_bytes))
         except Exception as e:
-            raise PDFProcessingError(f"Failed to read PDF: {e}", original_error=e) from e
-        
+            raise PDFProcessingError(
+                f"Failed to read PDF: {e}", original_error=e
+            ) from e
+
         # If not encrypted, return original bytes
         if not reader.is_encrypted:
             return pdf_bytes
-        
+
         # If encrypted but no password provided, raise error
         if not password:
             raise PDFProcessingError(
-                "PDF is encrypted but no password provided",
-                original_error=None
+                "PDF is encrypted but no password provided", original_error=None
             )
-        
+
         # Try to decrypt
         if reader.decrypt(password):
             # Write decrypted PDF to memory
@@ -89,20 +94,19 @@ class PDFProcessor:
             return decrypted_bytes
         else:
             raise PDFProcessingError(
-                "PDF decryption failed - incorrect password",
-                original_error=None
+                "PDF decryption failed - incorrect password", original_error=None
             )
 
     def process_pdf(self, pdf_path: Path, sender_email: str = "") -> str:
         """
-        Process PDF file, return base64-encoded PDF string
+        Process PDF file and extract text using PaddleOCR
         Args:
             pdf_path: PDF file path
             sender_email: Sender email for password lookup
         Returns:
-            Base64 PDF string with data:application/pdf;base64, prefix
+            Extracted text from PDF using PaddleOCR
         Raises:
-            PDFProcessingError: If PDF processing fails (decryption, corruption, etc.)
+            PDFProcessingError: If PDF processing or OCR fails
         """
         if not pdf_path.exists():
             raise FileNotFoundError(f"PDF file does not exist: {pdf_path}")
@@ -111,11 +115,13 @@ class PDFProcessor:
         try:
             pdf_bytes = pdf_path.read_bytes()
         except Exception as e:
-            raise PDFProcessingError(f"Failed to read PDF file: {e}", original_error=e) from e
-        
+            raise PDFProcessingError(
+                f"Failed to read PDF file: {e}", original_error=e
+            ) from e
+
         # Check if PDF needs decryption
         password = self._find_password(sender_email) if sender_email else None
-        
+
         if password:
             logger.info(f"Attempting decryption with password for {sender_email}")
             processed_bytes = self._process_pdf_bytes(pdf_bytes, password)
@@ -127,9 +133,23 @@ class PDFProcessor:
             # Process as-is - _process_pdf_bytes will check encryption and raise if needed
             processed_bytes = self._process_pdf_bytes(pdf_bytes)
 
-        # Encode to base64
+        # Use PaddleOCR to extract text
         try:
-            base64_pdf = base64.b64encode(processed_bytes).decode('utf-8')
+            # Convert PDF to image for OCR processing
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(suffix=".pdf") as tmp_pdf:
+                tmp_pdf.write(processed_bytes)
+                tmp_pdf.flush()
+
+                result = ocr.predict(tmp_pdf.name)
+                all_text = []
+                for page in result:
+                    all_text.extend(page['rec_texts'])                
+                extracted_text = "\n".join(all_text)
+                logger.info("OCR text extraction successful")
+                return extracted_text
         except Exception as e:
-            raise PDFProcessingError(f"Failed to encode PDF to base64: {e}", original_error=e) from e
-        return f"data:application/pdf;base64,{base64_pdf}"
+            raise PDFProcessingError(
+                f"OCR text extraction failed: {e}", original_error=e
+            ) from e

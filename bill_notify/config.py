@@ -33,7 +33,7 @@ class OpenRouterConfig:
     api_key: str
     model: str = "stepfun/step-3.5-flash:free"  # free model
     base_url: str = "https://openrouter.ai/api/v1"
-    pdf_engine: str = "pdf-text"  # PDF processing engine: "pdf-text" (free), "mistral-ocr" (paid), or "native"
+    pdf_engine: str = "pdf-text"  # PDF processing engine: "pdf-text" (free), "mistral-ocr" (paid), "native", or "paddleocr" (local)
 
 
 @dataclass

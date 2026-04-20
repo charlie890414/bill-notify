@@ -97,7 +97,9 @@ class LLMAnalyzer:
 
         return None
 
-    async def analyze_pdf(self, base64_pdfs: List[str], email_subject: str = "") -> Tuple[Union[date, bool, None], Optional[str], Optional[str]]:
+    async def analyze_pdf(
+        self, pdf_context: str, email_subject: str = ""
+    ) -> Tuple[Union[date, bool, None], Optional[str], Optional[str]]:
         """
         Analyze PDF documents, extract due date, amount, and generate event summary
         Args:
@@ -160,34 +162,9 @@ AMOUNT:"""
         else:
             user_message = "Please analyze this bill document and extract the due date, a brief event title, and the total bill amount."
 
-        # Build message content with PDF file
-        content = [
-            {"type": "text", "text": user_message},
-            *[
-                {
-                    "type": "file",
-                    "file": {
-                        "filename": "document.pdf",
-                        "file_data": base64_pdf,
-                    },
-                }
-                for base64_pdf in base64_pdfs
-            ],
-        ]
-
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": content},
-        ]
-
-        # Build plugins configuration for PDF processing
-        plugins = [
-            {
-                "id": "file-parser",
-                "pdf": {
-                    "engine": self.pdf_engine,
-                },
-            }
+            {"role": "user", "content": user_message + "\n\n---\n\n" + pdf_context},
         ]
 
         # Prepare request payload
@@ -197,10 +174,6 @@ AMOUNT:"""
             "temperature": 0.1,
             "max_tokens": 1000,
         }
-
-        # Only include plugins if not using native engine
-        if self.pdf_engine != "native":
-            payload["plugins"] = plugins
 
         # Set up headers
         headers = {
@@ -225,7 +198,7 @@ AMOUNT:"""
 
             message = data["choices"][0].get("message", {})
             message_content = message.get("content")
-            
+
             if message_content is None:
                 raise LLMAnalysisError("LLM response content is None")
 
@@ -236,16 +209,16 @@ AMOUNT:"""
             due_date_str = None
             summary = None
             amount = None
-            
-            for line in result_text.split('\n'):
+
+            for line in result_text.split("\n"):
                 line = line.strip()
-                if line.upper().startswith('DUE_DATE:'):
-                    due_date_str = line.split(':', 1)[1].strip()
-                elif line.upper().startswith('SUMMARY:'):
-                    summary = line.split(':', 1)[1].strip()
-                elif line.upper().startswith('AMOUNT:'):
-                    amount = line.split(':', 1)[1].strip()
-            
+                if line.upper().startswith("DUE_DATE:"):
+                    due_date_str = line.split(":", 1)[1].strip()
+                elif line.upper().startswith("SUMMARY:"):
+                    summary = line.split(":", 1)[1].strip()
+                elif line.upper().startswith("AMOUNT:"):
+                    amount = line.split(":", 1)[1].strip()
+
             # Check the due date status
             if not due_date_str:
                 raise LLMAnalysisError("No DUE_DATE field found in LLM response")
@@ -255,23 +228,27 @@ AMOUNT:"""
             elif due_date_str.upper() == "NOT_BILL":
                 logger.info("LLM determined document is not a bill requiring payment")
                 return False, None, None
-            
+
             # Parse the date for actual bills
             extracted_date = self._extract_date_from_text(due_date_str)
             if extracted_date:
-                logger.info(f"Extracted due date: {extracted_date}, summary: {summary}, amount: {amount}")
+                logger.info(
+                    f"Extracted due date: {extracted_date}, summary: {summary}, amount: {amount}"
+                )
                 return extracted_date, summary or "Bill Payment", amount
-            
+
             # If cannot parse date, raise error
             raise LLMAnalysisError(f"Cannot parse due date: {due_date_str}")
 
         except httpx.HTTPError as e:
             logger.error(f"HTTP error during LLM analysis: {e}")
-            response = getattr(e, 'response', None)
+            response = getattr(e, "response", None)
             if response is not None:
                 logger.error(f"Response status: {response.status_code}")
                 logger.error(f"Response body: {response.text}")
-            raise LLMAnalysisError(f"HTTP error during LLM analysis: {e}", original_error=e) from e
+            raise LLMAnalysisError(
+                f"HTTP error during LLM analysis: {e}", original_error=e
+            ) from e
         except LLMAnalysisError:
             raise
         except Exception as e:
