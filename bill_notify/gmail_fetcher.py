@@ -138,7 +138,7 @@ class GmailFetcher:
         for i, attachment in enumerate(mail.attachments):
             filename = attachment.get("filename")
             content_type = attachment.get("mail_content_type", "")
-            if "application/pdf" != content_type:
+            if not (filename.endswith(".pdf") or "application/pdf" == content_type):
                 continue
             file_data = base64.b64decode(attachment.get("payload"))
 
