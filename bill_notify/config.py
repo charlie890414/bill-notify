@@ -33,7 +33,6 @@ class OpenRouterConfig:
     api_key: str
     model: str = "stepfun/step-3.5-flash:free"  # free model
     base_url: str = "https://openrouter.ai/api/v1"
-    pdf_engine: str = "pdf-text"  # PDF processing engine: "pdf-text" (free), "mistral-ocr" (paid), "native", or "paddleocr" (local)
 
 
 @dataclass
@@ -100,7 +99,6 @@ class AppConfig:
         gmail_label = "bills"
         calendar_id_config = "primary"
         reminder_days_config = 3
-        pdf_engine = "pdf-text"
         days_back_config = 7
         openrouter_model = "stepfun/step-3.5-flash:free"
 
@@ -110,7 +108,6 @@ class AppConfig:
                 gmail_label = user_config.get("gmail_label", "bills")
                 calendar_id_config = user_config.get("calendar_id", "primary")
                 reminder_days_config = user_config.get("reminder_days", 3)
-                pdf_engine = user_config.get("pdf_engine", "pdf-text")
                 days_back_config = user_config.get("days_back", 7)
                 openrouter_model = user_config.get("model", openrouter_model)
 
@@ -135,7 +132,8 @@ class AppConfig:
         return cls(
             gmail=GmailConfig(gmail_label=gmail_label, days_back=days_back_config),
             openrouter=OpenRouterConfig(
-                api_key=openrouter_api_key, pdf_engine=pdf_engine, model=openrouter_model
+                api_key=openrouter_api_key,
+                model=openrouter_model,
             ),
             calendar=CalendarConfig(
                 calendar_id=calendar_id_config, reminder_days=reminder_days_config

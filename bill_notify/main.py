@@ -12,7 +12,12 @@ from bill_notify.gmail_fetcher import GmailFetcher
 from bill_notify.pdf_processor import PDFProcessor
 from bill_notify.llm_analyzer import LLMAnalyzer
 from bill_notify.calendar_sync import CalendarSync
-from bill_notify.exceptions import GmailError, CalendarError, PDFProcessingError, LLMAnalysisError
+from bill_notify.exceptions import (
+    GmailError,
+    CalendarError,
+    PDFProcessingError,
+    LLMAnalysisError,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -59,7 +64,9 @@ class BillNotify:
 
             # Handle NOT_BILL case: document is not a bill requiring payment
             if due_date is False:
-                logger.info(f"Document {pdf_path.name} is not a bill requiring payment, skipping")
+                logger.info(
+                    f"Document {pdf_path.name} is not a bill requiring payment, skipping"
+                )
                 return False
 
             # Handle EXTRACTION_FAILED or other None case
@@ -76,15 +83,22 @@ class BillNotify:
             # Check if already expired
             today = datetime.now().date()
             if due_date < today:
-                logger.warning(f"Due date {due_date} has passed, skipping event creation")
+                logger.warning(
+                    f"Due date {due_date} has passed, skipping event creation"
+                )
                 return due_date
 
             # 3. Check if similar event already exists from the same sender/file
             summary_keywords = ["bill", "payment", "due"]
             if self.calendar_sync.check_event_exists(
-                due_date, summary_keywords, sender_email=sender_email, pdf_filename=pdf_path.name
+                due_date,
+                summary_keywords,
+                sender_email=sender_email,
+                pdf_filename=pdf_path.name,
             ):
-                logger.warning(f"Similar event from this sender/file already exists on {due_date}, skipping")
+                logger.warning(
+                    f"Similar event from this sender/file already exists on {due_date}, skipping"
+                )
                 return due_date
 
             # 4. Create calendar event - prioritize LLM-generated summary, then email subject, then filename
@@ -96,19 +110,21 @@ class BillNotify:
                 lower_title = event_title.lower()
                 for prefix in prefixes_to_remove:
                     if lower_title.startswith(prefix.lower()):
-                        event_title = event_title[len(prefix):].strip()
+                        event_title = event_title[len(prefix) :].strip()
                         break
                 event_summary = f"[Bill] {event_title} - Payment Due"
             else:
                 event_summary = f"[Bill] {pdf_path.stem} - Payment Due"
-            
+
             # Build event description with amount if available
             amount_info = f"\nAmount: {amount}" if amount else ""
             event_description = f"Automatically created bill reminder\nSource: {pdf_path.name}\nEmail Subject: {email_subject or 'N/A'}\nExtracted: {today}{amount_info}"
 
             # Skip event creation in dry-run mode
             if self.config.dry_run:
-                logger.info(f"[DRY RUN] Would create calendar event: {event_summary} on {due_date}")
+                logger.info(
+                    f"[DRY RUN] Would create calendar event: {event_summary} on {due_date}"
+                )
                 if amount:
                     logger.info(f"[DRY RUN] Amount: {amount}")
                 return due_date
@@ -187,7 +203,9 @@ class BillNotify:
         successful_emails = []  # Track (msg_id, pdf_path) that succeeded
 
         for msg_id, pdf_path, sender_email, email_subject in pdf_files:
-            result = await self.process_single_pdf(pdf_path, sender_email, email_subject)
+            result = await self.process_single_pdf(
+                pdf_path, sender_email, email_subject
+            )
             # result can be: date (success), False (not a bill), or None (extraction failed)
             if result is not False and result is not None:
                 # date - success
@@ -226,14 +244,34 @@ class BillNotify:
 
 def parse_args():
     """Parse command line arguments"""
-    parser = argparse.ArgumentParser(description="Bill notification system - fetch bills from Gmail and create calendar reminders")
-    parser.add_argument("--dry-run", action="store_true", help="Show what would be done without creating calendar events or marking emails as processed")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
-    parser.add_argument("--config", type=str, help="Path to config file (overrides default)")
-    parser.add_argument("--label", type=str, help="Gmail label to filter (overrides config)")
-    parser.add_argument("--reminder-days", type=int, help="Reminder days in advance (overrides config)")
-    parser.add_argument("--calendar-id", type=str, help="Calendar ID (overrides config)")
-    parser.add_argument("--days-back", type=int, help="Number of days to look back for emails (overrides config)")
+    parser = argparse.ArgumentParser(
+        description="Bill notification system - fetch bills from Gmail and create calendar reminders"
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be done without creating calendar events or marking emails as processed",
+    )
+    parser.add_argument(
+        "--verbose", "-v", action="store_true", help="Enable verbose logging"
+    )
+    parser.add_argument(
+        "--config", type=str, help="Path to config file (overrides default)"
+    )
+    parser.add_argument(
+        "--label", type=str, help="Gmail label to filter (overrides config)"
+    )
+    parser.add_argument(
+        "--reminder-days", type=int, help="Reminder days in advance (overrides config)"
+    )
+    parser.add_argument(
+        "--calendar-id", type=str, help="Calendar ID (overrides config)"
+    )
+    parser.add_argument(
+        "--days-back",
+        type=int,
+        help="Number of days to look back for emails (overrides config)",
+    )
     return parser.parse_args()
 
 
@@ -241,18 +279,16 @@ async def main():
     """Program entry point"""
     try:
         args = parse_args()
-        
+
         # Configure logging
         log_level = logging.DEBUG if args.verbose else logging.INFO
         logging.basicConfig(
             level=log_level,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.StreamHandler(sys.stdout)
-            ],
-            force=True
+            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            handlers=[logging.StreamHandler(sys.stdout)],
+            force=True,
         )
-        
+
         config = AppConfig.load(
             dry_run=args.dry_run,
             verbose=args.verbose,

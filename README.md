@@ -90,7 +90,6 @@ uv sync
    gmail_label: "bills"        # Gmail label for filtering bill emails
    calendar_id: "primary"      # Target calendar (default calendar)
    reminder_days: 3            # Days in advance for reminder
-   pdf_engine: "pdf-text"      # PDF processing engine: "pdf-text" (free), "mistral-ocr" (paid), or "native"
    # model: "anthropic/claude-3-haiku"  # Optional: specify a text-compatible model
    ```
 
@@ -230,19 +229,6 @@ uv sync  # Re-sync dependencies
 Confirm the configured label (default "bills") exists in Gmail, case-sensitive.
 
 ## Configuration Recommendations
-
-### PDF Processing Engine (`pdf_engine`)
-
-The `pdf_engine` setting in `config.yaml` controls how PDFs are processed:
-
-- `pdf-text` (default, **free**): Best for well-structured PDFs with clear text content. Uses OpenRouter's built-in PDF parser.
-- `mistral-ocr` (**paid**): Best for scanned documents or PDFs with images. Uses Mistral OCR service (~$0.001 per page).
-- `native`: Only available for models that support file input natively (charged as input tokens).
-
-Example:
-```yaml
-pdf_engine: "mistral-ocr"  # For scanned/image-heavy PDFs
-```
 
 ### Recommended OpenRouter Text Models
 

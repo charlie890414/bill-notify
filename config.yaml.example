@@ -7,8 +7,5 @@ gmail_label: "bills"
 calendar_id: "primary"  # default calendar, can be email address or calendar ID
 reminder_days: 3        # days in advance for reminder
 
-# PDF processing engine: "pdf-text" (free), "mistral-ocr" (paid), or "native"
-pdf_engine: "pdf-text"
-
 # OpenRouter model settings (optional)
 # model: "anthropic/claude-3-haiku"  # Recommended for text-based PDF analysis

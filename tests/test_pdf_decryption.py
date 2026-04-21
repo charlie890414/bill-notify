@@ -3,7 +3,6 @@
 import sys
 import tempfile
 from pathlib import Path
-import base64
 
 try:
     from pypdf import PdfWriter, PdfReader
@@ -61,6 +60,7 @@ def test_pdf_decryption():
     except Exception as e:
         print(f"✗ Test failed with error: {e}")
         import traceback
+
         traceback.print_exc()
         raise
     finally:
@@ -124,6 +124,43 @@ def test_wrong_password():
             pdf_path.unlink()
 
 
+def test_password_prompt():
+    """Test password prompt functionality"""
+    print("\nTesting password prompt functionality...")
+    pdf_path = create_encrypted_pdf("test123")
+
+    # Configure with no password
+    processor = PDFProcessor(pdf_passwords={})
+
+    try:
+        # Mock user input for testing
+        import builtins
+
+        original_input = builtins.input
+
+        def mock_input(prompt):
+            if "密碼" in prompt:
+                return "test123"  # Correct password
+            return original_input(prompt)
+
+        builtins.input = mock_input
+
+        result = processor.process_pdf(pdf_path, sender_email="test@example.com")
+        assert result and isinstance(result, str), "Processing did not return text"
+        print("✓ Password prompt worked correctly")
+        print(f"✓ Extracted text: {result[:100]}...")
+
+    except Exception as e:
+        print(f"✗ Test failed with error: {e}")
+        import traceback
+
+        traceback.print_exc()
+        raise
+    finally:
+        if pdf_path.exists():
+            pdf_path.unlink()
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("PDF Decryption Tests")
@@ -134,7 +171,7 @@ if __name__ == "__main__":
         test_pdf_decryption()
         test_pdf_without_password()
         test_wrong_password()
-        
+
         print("\n" + "=" * 60)
         print("All tests passed! ✓")
         sys.exit(0)

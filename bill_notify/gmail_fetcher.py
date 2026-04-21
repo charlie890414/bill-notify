@@ -22,7 +22,7 @@ class GmailFetcher:
         self.config = config
         auth_manager = AuthManager(
             credentials_file=config.gmail.credentials_file,
-            token_file=config.gmail.token_file
+            token_file=config.gmail.token_file,
         )
         self.service = auth_manager.build_service("gmail", "v1")
         self.processed_log = Path(config.processed_log)
@@ -69,14 +69,16 @@ class GmailFetcher:
             # Build date-based query
             days_back = self.config.gmail.days_back
             if days_back > 0:
-                since_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y/%m/%d")
+                since_date = (datetime.now() - timedelta(days=days_back)).strftime(
+                    "%Y/%m/%d"
+                )
                 query = f"label:{label_name} after:{since_date}"
             else:
                 query = f"label:{label_name}"
-            
+
             if self.config.verbose:
                 logger.info(f"Gmail query: {query}")
-            
+
             results = (
                 self.service.users()
                 .messages()
@@ -97,10 +99,11 @@ class GmailFetcher:
                 .get(userId="me", id=msg_id, format="raw")
                 .execute()
             )
-            # Decode raw message data            
+            # Decode raw message data
             raw_data = base64.urlsafe_b64decode(message["raw"])
             # Parse with mail-parser - needs email message object
             from email.parser import BytesParser
+
             email_message = BytesParser().parsebytes(raw_data)
             mail = MailParser(email_message)
             return mail
@@ -143,9 +146,8 @@ class GmailFetcher:
             file_data = base64.b64decode(attachment.get("payload"))
 
             is_pdf = (
-                (filename and filename.lower().endswith(".pdf"))
-                or content_type == "application/pdf"
-            )
+                filename and filename.lower().endswith(".pdf")
+            ) or content_type == "application/pdf"
 
             if not is_pdf:
                 continue
@@ -190,7 +192,9 @@ class GmailFetcher:
             if pdf_files:
                 # Attach sender email and subject to each PDF file
                 for pdf_path in pdf_files:
-                    unprocessed_files.append((msg_id, pdf_path, sender_email, email_subject))
+                    unprocessed_files.append(
+                        (msg_id, pdf_path, sender_email, email_subject)
+                    )
             # Note: We do NOT mark as processed here anymore - that's done after successful event creation
 
         return unprocessed_files

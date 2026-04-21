@@ -24,12 +24,11 @@ def create_mock_config() -> AppConfig:
             api_key="test_api_key",
             model="test/model",
             base_url="https://openrouter.ai/api/v1",
-            pdf_engine="pdf-text"
         ),
         calendar=CalendarConfig(),
         download_dir="./downloads",
         processed_log="./processed_emails.log",
-        pdf_passwords=None
+        pdf_passwords=None,
     )
 
 
@@ -37,42 +36,44 @@ def create_mock_config() -> AppConfig:
 async def test_analyze_pdf_success():
     """Test successful PDF analysis with mocked response"""
     print("Testing analyze_pdf with successful response...")
-    
+
     config = create_mock_config()
     analyzer = LLMAnalyzer(config)
-    
+
     # Mock response data with proper format
     mock_response_data = {
         "choices": [
             {
                 "message": {
                     "content": "DUE_DATE: 2025-03-15\nSUMMARY: Test Bill\nAMOUNT: $100.00",
-                    "role": "assistant"
+                    "role": "assistant",
                 }
             }
         ]
     }
-    
+
     # Create a mock response
     mock_response = MagicMock()
     mock_response.json.return_value = mock_response_data
     mock_response.raise_for_status = MagicMock()
-    
+
     # Mock httpx.AsyncClient
-    with patch('httpx.AsyncClient') as mock_client_class:
+    with patch("httpx.AsyncClient") as mock_client_class:
         mock_client = AsyncMock()
         mock_client.post.return_value = mock_response
         mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
-        
+
         # Test with sample base64 PDF (minimal valid PDF)
         base64_pdf = "data:application/pdf;base64,JVBERi0xLjQKJcOkw7zD..."  # truncated
         result = await analyzer.analyze_pdf([base64_pdf])
-        
+
         if result:
             due_date, summary, amount = result
             assert due_date is not None and isinstance(due_date, date)
-            print(f"✓ Successfully extracted date: {due_date}, summary: {summary}, amount: {amount}")
+            print(
+                f"✓ Successfully extracted date: {due_date}, summary: {summary}, amount: {amount}"
+            )
             return True
         else:
             print("✗ Failed to extract date")
@@ -83,35 +84,35 @@ async def test_analyze_pdf_success():
 async def test_analyze_pdf_not_bill():
     """Test PDF analysis when document is determined NOT to be a bill requiring payment"""
     print("\nTesting analyze_pdf with NOT_BILL response (receipt, statement, etc.)...")
-    
+
     config = create_mock_config()
     analyzer = LLMAnalyzer(config)
-    
+
     # Simulate a receipt or statement that doesn't require payment
     mock_response_data = {
         "choices": [
             {
                 "message": {
                     "content": "DUE_DATE: NOT_BILL\nSUMMARY:\nAMOUNT:",
-                    "role": "assistant"
+                    "role": "assistant",
                 }
             }
         ]
     }
-    
+
     mock_response = MagicMock()
     mock_response.json.return_value = mock_response_data
     mock_response.raise_for_status = MagicMock()
-    
-    with patch('httpx.AsyncClient') as mock_client_class:
+
+    with patch("httpx.AsyncClient") as mock_client_class:
         mock_client = AsyncMock()
         mock_client.post.return_value = mock_response
         mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
-        
+
         base64_pdf = "data:application/pdf;base64,JVBERi0xLjQKJcOkw7zD..."
         result = await analyzer.analyze_pdf([base64_pdf])
-        
+
         # Should return (False, None, None) for NOT_BILL
         if result == (False, None, None):
             print("✓ Correctly returned (False, None, None) for non-bill document")
@@ -125,35 +126,35 @@ async def test_analyze_pdf_not_bill():
 async def test_analyze_pdf_extraction_failed():
     """Test PDF analysis when due date extraction failed"""
     print("\nTesting analyze_pdf with EXTRACTION_FAILED response...")
-    
+
     config = create_mock_config()
     analyzer = LLMAnalyzer(config)
-    
+
     # Simulate a document where due date cannot be extracted
     mock_response_data = {
         "choices": [
             {
                 "message": {
                     "content": "DUE_DATE: EXTRACTION_FAILED\nSUMMARY:\nAMOUNT:",
-                    "role": "assistant"
+                    "role": "assistant",
                 }
             }
         ]
     }
-    
+
     mock_response = MagicMock()
     mock_response.json.return_value = mock_response_data
     mock_response.raise_for_status = MagicMock()
-    
-    with patch('httpx.AsyncClient') as mock_client_class:
+
+    with patch("httpx.AsyncClient") as mock_client_class:
         mock_client = AsyncMock()
         mock_client.post.return_value = mock_response
         mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
-        
+
         base64_pdf = "data:application/pdf;base64,JVBERi0xLjQKJcOkw7zD..."
         result = await analyzer.analyze_pdf([base64_pdf])
-        
+
         # Should return (None, None, None) for extraction failure
         if result is None or result == (None, None, None):
             print("✓ Correctly returned (None, None, None) for extraction failure")
@@ -167,19 +168,19 @@ async def test_analyze_pdf_extraction_failed():
 async def test_http_error_handling():
     """Test HTTP error handling"""
     print("\nTesting HTTP error handling...")
-    
+
     config = create_mock_config()
     analyzer = LLMAnalyzer(config)
-    
+
     # Mock httpx.HTTPError
-    with patch('httpx.AsyncClient') as mock_client_class:
+    with patch("httpx.AsyncClient") as mock_client_class:
         mock_client = AsyncMock()
         mock_client.post.side_effect = Exception("Connection error")
         mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
-        
+
         base64_pdf = "data:application/pdf;base64,JVBERi0xLjQKJcOkw7zD..."
-        
+
         # Should raise LLMAnalysisError
         try:
             await analyzer.analyze_pdf([base64_pdf])
@@ -197,66 +198,67 @@ async def test_http_error_handling():
 async def test_request_payload():
     """Test that the request payload is correctly built"""
     print("\nTesting request payload construction...")
-    
+
     config = create_mock_config()
     analyzer = LLMAnalyzer(config)
-    
+
     # Capture the payload sent to the API
     captured_payload = None
-    
+
     def capture_post(*args, **kwargs):
         nonlocal captured_payload
-        captured_payload = kwargs.get('json', {})
+        captured_payload = kwargs.get("json", {})
         mock_response = MagicMock()
-        mock_response.json.return_value = {"choices": [{"message": {"content": "DUE_DATE: 2025-03-15\nSUMMARY: Test\nAMOUNT: $0"}}]}
+        mock_response.json.return_value = {
+            "choices": [
+                {
+                    "message": {
+                        "content": "DUE_DATE: 2025-03-15\nSUMMARY: Test\nAMOUNT: $0"
+                    }
+                }
+            ]
+        }
         mock_response.raise_for_status = MagicMock()
         return mock_response
-    
-    with patch('httpx.AsyncClient') as mock_client_class:
+
+    with patch("httpx.AsyncClient") as mock_client_class:
         mock_client = AsyncMock()
         mock_client.post.side_effect = capture_post
         mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
-        
+
         base64_pdf = "data:application/pdf;base64,JVBERi0xLjQKJcOkw7zD..."
         await analyzer.analyze_pdf([base64_pdf])
-        
+
         if captured_payload:
             print(f"✓ Captured payload: {json.dumps(captured_payload, indent=2)}")
-            
+
             # Verify payload structure
-            assert 'model' in captured_payload, "Missing 'model' field"
-            assert 'messages' in captured_payload, "Missing 'messages' field"
-            assert 'temperature' in captured_payload, "Missing 'temperature' field"
-            assert 'max_tokens' in captured_payload, "Missing 'max_tokens' field"
-            
+            assert "model" in captured_payload, "Missing 'model' field"
+            assert "messages" in captured_payload, "Missing 'messages' field"
+            assert "temperature" in captured_payload, "Missing 'temperature' field"
+            assert "max_tokens" in captured_payload, "Missing 'max_tokens' field"
+
             # Check messages structure
-            messages = captured_payload['messages']
+            messages = captured_payload["messages"]
             assert len(messages) == 2, f"Expected 2 messages, got {len(messages)}"
-            assert messages[0]['role'] == 'system', "First message should be system"
-            assert messages[1]['role'] == 'user', "Second message should be user"
-            
+            assert messages[0]["role"] == "system", "First message should be system"
+            assert messages[1]["role"] == "user", "Second message should be user"
+
             # Check file content
-            user_content = messages[1]['content']
-            assert len(user_content) == 2, f"Expected 2 content items, got {len(user_content)}"
-            assert user_content[0]['type'] == 'text', "First content should be text"
-            assert user_content[1]['type'] == 'file', "Second content should be file"
-            
+            user_content = messages[1]["content"]
+            assert len(user_content) == 2, (
+                f"Expected 2 content items, got {len(user_content)}"
+            )
+            assert user_content[0]["type"] == "text", "First content should be text"
+            assert user_content[1]["type"] == "file", "Second content should be file"
+
             # Check file data
-            file_data = user_content[1]['file']
-            assert 'filename' in file_data, "Missing filename in file data"
-            assert 'file_data' in file_data, "Missing file_data in file data"
-            assert file_data['file_data'] == base64_pdf, "file_data doesn't match input"
-            
-            # Check plugins (should be included for pdf-text engine)
-            if config.openrouter.pdf_engine != 'native':
-                assert 'plugins' in captured_payload, "Missing 'plugins' field for non-native engine"
-                plugins = captured_payload['plugins']
-                assert len(plugins) == 1, "Expected 1 plugin"
-                assert plugins[0]['id'] == 'file-parser', "Plugin ID should be 'file-parser'"
-                assert 'pdf' in plugins[0], "Missing 'pdf' in plugin config"
-                assert plugins[0]['pdf']['engine'] == config.openrouter.pdf_engine, "Engine mismatch"
-            
+            file_data = user_content[1]["file"]
+            assert "filename" in file_data, "Missing filename in file data"
+            assert "file_data" in file_data, "Missing file_data in file data"
+            assert file_data["file_data"] == base64_pdf, "file_data doesn't match input"
+
             print("✓ Payload structure is correct")
             return True
         else:
@@ -269,7 +271,7 @@ async def run_all_tests():
     print("=" * 60)
     print("LLM Analyzer httpx Implementation Tests")
     print("=" * 60)
-    
+
     tests = [
         test_analyze_pdf_success,
         test_analyze_pdf_not_bill,
@@ -277,7 +279,7 @@ async def run_all_tests():
         test_http_error_handling,
         test_request_payload,
     ]
-    
+
     results = []
     for test in tests:
         try:
@@ -286,15 +288,16 @@ async def run_all_tests():
         except Exception as e:
             print(f"✗ Test {test.__name__} raised exception: {e}")
             import traceback
+
             traceback.print_exc()
             results.append(False)
-    
+
     print("\n" + "=" * 60)
     passed = sum(results)
     total = len(results)
     print(f"Results: {passed}/{total} tests passed")
     print("=" * 60)
-    
+
     return all(results)
 
 

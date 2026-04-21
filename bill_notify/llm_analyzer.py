@@ -3,7 +3,7 @@
 import logging
 import re
 from datetime import date
-from typing import Optional, List, Dict, Any, Tuple, Union
+from typing import Optional, Dict, Any, Tuple, Union
 import httpx
 from bill_notify.config import AppConfig
 from bill_notify.exceptions import LLMAnalysisError
@@ -20,7 +20,6 @@ class LLMAnalyzer:
         self.api_key = config.openrouter.api_key
         self.base_url = config.openrouter.base_url
         self.model = config.openrouter.model
-        self.pdf_engine = config.openrouter.pdf_engine
 
     def _extract_date_from_text(self, text: str) -> Optional[date]:
         """

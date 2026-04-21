@@ -15,13 +15,16 @@ from bill_notify.config import SCOPES
 
 class AuthenticationError(Exception):
     """Raised when authentication fails"""
+
     pass
 
 
 class AuthManager:
     """Manages OAuth 2.0 authentication for Google APIs"""
 
-    def __init__(self, credentials_file: str = "credentials.json", token_file: str = "token.json"):
+    def __init__(
+        self, credentials_file: str = "credentials.json", token_file: str = "token.json"
+    ):
         """
         Initialize authentication manager
         Args:
@@ -99,7 +102,9 @@ class AuthManager:
             Authenticated service object
         """
         creds = self.get_credentials()
-        return build(api_name, api_version, credentials=creds, cache_discovery=False, **kwargs)
+        return build(
+            api_name, api_version, credentials=creds, cache_discovery=False, **kwargs
+        )
 
     def revoke_token(self):
         """Delete stored token to force re-authentication on next run"""

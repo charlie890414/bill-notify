@@ -19,7 +19,7 @@ class CalendarSync:
         self.config = config
         auth_manager = AuthManager(
             credentials_file=config.gmail.credentials_file,
-            token_file=config.gmail.token_file
+            token_file=config.gmail.token_file,
         )
         self.service = auth_manager.build_service("calendar", "v3")
 
@@ -115,22 +115,22 @@ class CalendarSync:
                 matches_keywords = any(
                     keyword.lower() in summary for keyword in summary_keywords
                 )
-                
+
                 if not matches_keywords:
                     continue
-                
+
                 # If sender or pdf filename provided, check description for source to avoid duplicates from different senders
                 if sender_email or pdf_filename:
                     description = event.get("description", "").lower()
-                    
+
                     # Check if this event is from the same sender
                     if sender_email and sender_email.lower() in description:
                         return True
-                    
+
                     # Check if this event is from the same PDF file
                     if pdf_filename and pdf_filename.lower() in description:
                         return True
-                    
+
                     # If we have sender/pdf info but neither matches, continue checking other events
                     continue
                 else:
