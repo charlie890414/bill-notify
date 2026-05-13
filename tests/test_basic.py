@@ -21,7 +21,11 @@ modules = [
     ("bill_notify.pdf_processor", "PDFProcessor"),
     ("bill_notify.llm_analyzer", "LLMAnalyzer"),
     ("bill_notify.calendar_sync", "CalendarSync"),
-    ("bill_notify.main", "BillNotify"),
+    ("bill_notify.pipeline", "BillPipeline"),
+    ("bill_notify.models", "BillEmail"),
+    ("bill_notify.models", "BillAnalysisResult"),
+    ("bill_notify.google_services", "GoogleServices"),
+    ("bill_notify.password_providers", "YamlPasswordProvider"),
 ]
 
 for module_name, class_name in modules:
@@ -40,8 +44,7 @@ print("=" * 60)
 # Prompt for configuration
 print("\nBefore using, please ensure:")
 print("1. Dependencies installed: uv sync")
-print("2. poppler installed (for PDF conversion)")
-print("3. .env file configured (OPENROUTER_API_KEY)")
-print("4. config.yaml file configured")
-print("5. credentials.json placed (Google OAuth)")
+print("2. .env file configured (OPENROUTER_API_KEY)")
+print("3. config.yaml file configured")
+print("4. credentials.json placed (Google OAuth)")
 print("\nRun: uv run python -m bill_notify.main")

@@ -2,7 +2,7 @@
 
 import os
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Optional
 from dotenv import load_dotenv
 import yaml
 
@@ -52,7 +52,7 @@ class AppConfig:
     calendar: CalendarConfig
     download_dir: str = "./downloads"
     processed_log: str = "./processed_emails.log"
-    pdf_passwords: Optional[Dict[str, str]] = None  # PDF password mappings
+    pdf_passwords_file: str = "pdf_passwords.yaml"
     dry_run: bool = False
     verbose: bool = False
 
@@ -121,13 +121,8 @@ class AppConfig:
         if days_back is not None:
             days_back_config = days_back
 
-        # Load PDF passwords from separate file
-        pdf_passwords_path = os.getenv("PDF_PASSWORDS_FILE", "pdf_passwords.yaml")
-        if os.path.exists(pdf_passwords_path):
-            with open(pdf_passwords_path, "r", encoding="utf-8") as f:
-                pdf_passwords = yaml.safe_load(f) or {}
-        else:
-            pdf_passwords = {}
+        # Load PDF passwords file path
+        pdf_passwords_file = os.getenv("PDF_PASSWORDS_FILE", "pdf_passwords.yaml")
 
         return cls(
             gmail=GmailConfig(gmail_label=gmail_label, days_back=days_back_config),
@@ -138,7 +133,7 @@ class AppConfig:
             calendar=CalendarConfig(
                 calendar_id=calendar_id_config, reminder_days=reminder_days_config
             ),
-            pdf_passwords=pdf_passwords,
+            pdf_passwords_file=pdf_passwords_file,
             dry_run=dry_run,
             verbose=verbose,
         )
