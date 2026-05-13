@@ -1,0 +1,30 @@
+x-bill-notify-common: &bill-notify-common
+  build:
+    context: .
+  image: bill-notify:local
+  env_file:
+    - .env
+  environment:
+    TZ: Asia/Taipei
+  volumes:
+    - ./config.yaml:/app/config.yaml:ro
+    - ./credentials.json:/app/credentials.json:ro
+    - ./token.json:/app/token.json
+    - ./pdf_passwords.yaml:/app/pdf_passwords.yaml:ro
+    - ./processed_emails.log:/app/processed_emails.log
+    - ./downloads:/app/downloads
+
+services:
+  bill-notify:
+    <<: *bill-notify-common
+    profiles:
+      - manual
+
+  bill-notify-scheduler:
+    <<: *bill-notify-common
+    environment:
+      TZ: Asia/Taipei
+      BILL_NOTIFY_CRON: "0 10 * * *"
+    entrypoint: ["/app/deploy/run-supercronic.sh"]
+    init: true
+    restart: unless-stopped
