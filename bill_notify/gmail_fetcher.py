@@ -1,13 +1,14 @@
 """Gmail email fetcher module"""
 
 import base64
+import json
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List
 from googleapiclient.errors import HttpError
 from mailparser import MailParser
-from bill_notify.models import BillEmail
+from bill_notify.models import BillEmail, ProcessedRecord
 from bill_notify.interfaces import GmailServiceProvider
 from bill_notify.exceptions import GmailError
 
@@ -25,12 +26,14 @@ class GmailFetcher:
         processed_log: Path,
         label: str = "bills",
         days_back: int = 7,
+        ignore_processed: bool = False,
     ):
         self._gmail = gmail_service
         self.download_dir = Path(download_dir)
         self.processed_log = Path(processed_log)
         self.label = label
         self.days_back = days_back
+        self.ignore_processed = ignore_processed
         self._load_processed_emails()
 
     @property
@@ -41,19 +44,88 @@ class GmailFetcher:
     def _load_processed_emails(self):
         """Load processed email IDs from log file"""
         self.processed_emails: set[str] = set()
+        self.processed_records: dict[str, ProcessedRecord] = {}
         if self.processed_log.exists():
             with open(self.processed_log, "r", encoding="utf-8") as f:
-                self.processed_emails = set(line.strip() for line in f if line.strip())
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    if line.startswith("{"):
+                        try:
+                            data = json.loads(line)
+                        except json.JSONDecodeError:
+                            logger.warning("Skipping invalid processed log JSON line")
+                            continue
+
+                        key = data.get("key")
+                        if not key:
+                            continue
+
+                        record = ProcessedRecord(
+                            key=key,
+                            status=data.get("status", "success"),
+                            processed_at=data.get("processed_at", ""),
+                            msg_id=data.get("msg_id", ""),
+                            sender=data.get("sender", ""),
+                            subject=data.get("subject", ""),
+                            pdf_path=data.get("pdf_path", ""),
+                            event_id=data.get("event_id"),
+                            error=data.get("error"),
+                        )
+                        self.processed_records[key] = record
+                        self.processed_emails.add(key)
+                    else:
+                        self.processed_emails.add(line)
 
     def _reload_processed_emails(self):
         """Reload processed emails from log file (for use after marking)"""
         self._load_processed_emails()
 
-    def mark_processed(self, msg_id: str):
-        """Mark email as processed"""
+    def mark_processed(self, processed_key: str):
+        """Mark an email or email attachment as processed"""
+        self.processed_log.parent.mkdir(parents=True, exist_ok=True)
         with open(self.processed_log, "a", encoding="utf-8") as f:
-            f.write(f"{msg_id}\n")
-        self.processed_emails.add(msg_id)
+            f.write(f"{processed_key}\n")
+        self.processed_emails.add(processed_key)
+
+    def mark_processed_record(self, record: ProcessedRecord):
+        """Append a structured processed record."""
+        self.processed_log.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.processed_log, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record.__dict__, ensure_ascii=False) + "\n")
+        self.processed_emails.add(record.key)
+        self.processed_records[record.key] = record
+
+    def replace_processed(self, processed_records: list[ProcessedRecord] | list[str]):
+        """Replace the processed log with the given processed records."""
+        unique_records: dict[str, ProcessedRecord] = {}
+        legacy_keys: list[str] = []
+        for item in processed_records:
+            if isinstance(item, ProcessedRecord):
+                unique_records[item.key] = item
+            else:
+                legacy_keys.append(item)
+
+        unique_keys = list(dict.fromkeys(legacy_keys))
+        self.processed_log.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.processed_log, "w", encoding="utf-8") as f:
+            for record in unique_records.values():
+                f.write(json.dumps(record.__dict__, ensure_ascii=False) + "\n")
+            for processed_key in unique_keys:
+                f.write(f"{processed_key}\n")
+        self.processed_records = unique_records
+        self.processed_emails = set(unique_records) | set(unique_keys)
+
+    def event_ids_for_processed_keys(self, processed_keys: list[str]) -> list[str]:
+        """Return known calendar event IDs for processed keys."""
+        event_ids = []
+        for key in processed_keys:
+            record = self.processed_records.get(key)
+            if record and record.event_id:
+                event_ids.append(record.event_id)
+        return event_ids
 
     def get_label_id(self, label_name: str) -> str:
         """Get label ID"""
@@ -176,7 +248,7 @@ class GmailFetcher:
             msg_id = msg["id"]
 
             # Skip already processed
-            if msg_id in self.processed_emails:
+            if not self.ignore_processed and msg_id in self.processed_emails:
                 logger.debug(f"Skipping already processed email: {msg_id}")
                 continue
 
@@ -186,13 +258,21 @@ class GmailFetcher:
             pdf_files = self.get_pdf_attachments(mail, msg_id, self.download_dir)
 
             for pdf_path in pdf_files:
-                emails.append(
-                    BillEmail(
-                        msg_id=msg_id,
-                        sender=sender_email,
-                        subject=email_subject,
-                        pdf_path=pdf_path,
-                    )
+                email = BillEmail(
+                    msg_id=msg_id,
+                    sender=sender_email,
+                    subject=email_subject,
+                    pdf_path=pdf_path,
                 )
+                if (
+                    not self.ignore_processed
+                    and email.processed_key in self.processed_emails
+                ):
+                    logger.debug(
+                        f"Skipping already processed attachment: {email.processed_key}"
+                    )
+                    continue
+
+                emails.append(email)
 
         return emails

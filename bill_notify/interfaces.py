@@ -19,6 +19,12 @@ class PasswordProvider(Protocol):
         """
         ...
 
+    def save_password(self, sender_email: str, password: str) -> None:
+        """
+        Persist a password after it has been verified.
+        """
+        ...
+
 
 class GmailServiceProvider(Protocol):
     """Interface for Gmail API access"""

@@ -82,6 +82,7 @@ class YamlPasswordProvider:
     def save(self, sender_email: str, password: str, filepath: str | Path):
         """Save a new password to yaml file"""
         path = Path(filepath)
+        path.parent.mkdir(parents=True, exist_ok=True)
         passwords = {}
 
         if path.exists():
@@ -89,6 +90,7 @@ class YamlPasswordProvider:
                 passwords = yaml.safe_load(f) or {}
 
         passwords[sender_email] = password
+        self._passwords[sender_email] = password
 
         with open(path, "w", encoding="utf-8") as f:
             yaml.safe_dump(passwords, f, sort_keys=False)
@@ -161,6 +163,18 @@ class CompositePasswordProvider:
             self.interactive_provider.clear_password(sender_email)
         logger.debug(f"Cleared password cache for {sender_email}")
 
+    def save_password(self, sender_email: str, password: str) -> None:
+        """Persist a verified password if interactive saving is configured."""
+        if not self.interactive_provider or not self.interactive_provider.save_path:
+            return
+
+        self.yaml_provider.save(
+            sender_email,
+            password,
+            self.interactive_provider.save_path,
+        )
+        logger.info(f"Saved verified PDF password for {sender_email}")
+
 
 class NoOpPasswordProvider:
     """Password provider that never returns passwords (for testing)"""
@@ -169,4 +183,7 @@ class NoOpPasswordProvider:
         return None
 
     def clear_password(self, sender_email: str) -> None:
+        pass
+
+    def save_password(self, sender_email: str, password: str) -> None:
         pass

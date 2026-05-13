@@ -2,10 +2,18 @@
 
 # Gmail label name (for filtering bill emails to process)
 gmail_label: "bills"
+days_back: 7
+
+# Local files and directories
+credentials_file: "credentials.json"
+token_file: "token.json"
+download_dir: "./downloads"
+processed_log: "./processed_emails.log"
+pdf_passwords_file: "pdf_passwords.yaml"
 
 # Google Calendar settings
 calendar_id: "primary"  # default calendar, can be email address or calendar ID
-reminder_days: 3        # days in advance for reminder
+reminder_days: [7, 3, 1]  # days in advance for reminders; single value like 3 also works
 
 # OpenRouter model settings (optional)
-# model: "anthropic/claude-3-haiku"  # Recommended for text-based PDF analysis
+model: "stepfun/step-3.5-flash:free"

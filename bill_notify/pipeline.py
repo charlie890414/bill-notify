@@ -1,13 +1,14 @@
 """Pipeline - Workflow orchestration for bill processing"""
 
 import logging
-from datetime import datetime
 from pathlib import Path
 from bill_notify.models import (
     BillEmail,
     ProcessingSummary,
     BillAnalysisResult,
     CalendarEvent,
+    ExtractedBill,
+    ProcessedRecord,
 )
 from bill_notify.gmail_fetcher import GmailFetcher
 from bill_notify.pdf_processor import PDFProcessor
@@ -15,7 +16,7 @@ from bill_notify.llm_analyzer import LLMAnalyzer
 from bill_notify.calendar_sync import CalendarSync
 from bill_notify.interfaces import PasswordProvider
 from bill_notify.google_services import GoogleServices
-from bill_notify.constants import EVENT_SUMMARY_PREFIX, EVENT_SUMMARY_SUFFIX, PREFIXES_TO_REMOVE
+from bill_notify.event_builder import build_calendar_event
 
 
 logger = logging.getLogger(__name__)
@@ -38,16 +39,20 @@ class BillPipeline:
         llm_analyzer: LLMAnalyzer,
         calendar: CalendarSync,
         processed_log: Path,
+        reminder_days: int | list[int] = 3,
         dry_run: bool = False,
         verbose: bool = False,
+        force_reprocess: bool = False,
     ):
         self.gmail = gmail
         self.pdf_processor = pdf_processor
         self.llm_analyzer = llm_analyzer
         self.calendar = calendar
         self.processed_log = Path(processed_log)
+        self.reminder_days = reminder_days
         self.dry_run = dry_run
         self.verbose = verbose
+        self.force_reprocess = force_reprocess
 
     async def run(self) -> ProcessingSummary:
         """
@@ -58,6 +63,8 @@ class BillPipeline:
         logger.info("Bill Notification System Started")
         if self.dry_run:
             logger.info("Mode: DRY RUN (no changes will be made)")
+        if self.force_reprocess:
+            logger.info("Mode: FORCE REPROCESS (processed log will be overwritten)")
         logger.info("=" * 60)
 
         # 1. Fetch emails
@@ -70,6 +77,9 @@ class BillPipeline:
 
         logger.info(f"Found {len(emails)} emails to process")
 
+        if self.force_reprocess:
+            self._delete_previous_events(emails)
+
         # 3. Pre-initialize OCR model if there are emails to process
         if emails:
             logger.info("Initializing OCR model...")
@@ -80,13 +90,19 @@ class BillPipeline:
         summary = ProcessingSummary()
         for email in emails:
             result = await self._process_email(email)
-            self._update_summary(summary, result)
+            self._update_summary(summary, result, email)
 
         # 3. Mark processed emails
-        if not self.dry_run and summary.processed_emails:
+        if not self.dry_run and self.force_reprocess:
+            logger.info("\n[3/4] Overwriting processed email records...")
+            self.gmail.replace_processed(summary.processed_records)
+            logger.info(
+                f"Wrote {len(summary.processed_records)} processed email records"
+            )
+        elif not self.dry_run and summary.processed_emails:
             logger.info("\n[3/4] Marking emails as processed...")
-            for msg_id in summary.processed_emails:
-                self.gmail.mark_processed(msg_id)
+            for record in summary.processed_records:
+                self.gmail.mark_processed_record(record)
             logger.info(f"Marked {len(summary.processed_emails)} emails as processed")
         elif self.dry_run:
             logger.info("\n[3/4] Dry run - emails NOT marked as processed")
@@ -118,11 +134,9 @@ class BillPipeline:
         # Step 2: Analyze with LLM
         if self.verbose:
             logger.info("  Analyzing with LLM...")
-        result = await self.llm_analyzer.analyze_pdf(pdf_text, email.subject)
-
-        # Update bill source with correct msg_id
-        if result.bill and not result.bill.source.msg_id:
-            result.bill.source.msg_id = email.msg_id
+        result = await self.llm_analyzer.analyze_pdf(
+            pdf_text, email.subject, email.sender
+        )
 
         if result.status == "not_bill":
             logger.info("  Document is not a bill requiring payment")
@@ -132,6 +146,14 @@ class BillPipeline:
         if result.status == "failed":
             logger.warning(f"  Analysis failed: {result.error}")
             return result
+
+        if not result.bill:
+            logger.warning("  Analysis succeeded without bill details")
+            return BillAnalysisResult(
+                status="failed", error="Analysis succeeded without bill details"
+            )
+
+        result.bill.source = email
 
         # Step 3: Check if expired
         bill = result.bill
@@ -154,6 +176,7 @@ class BillPipeline:
                 try:
                     event_id = self.calendar.create_event(event)
                     logger.info(f"  Created calendar event (ID: {event_id})")
+                    result.event_id = event_id
                     return result
                 except Exception as e:
                     logger.error(f"  Failed to create event: {e}")
@@ -161,62 +184,47 @@ class BillPipeline:
 
         return result
 
-    def _build_event(self, bill) -> CalendarEvent:
+    def _build_event(self, bill: ExtractedBill) -> CalendarEvent:
         """Build calendar event from extracted bill"""
-        from bill_notify.models import ExtractedBill
         if not isinstance(bill, ExtractedBill):
             raise ValueError("Expected ExtractedBill")
+        if bill.source is None:
+            raise ValueError("ExtractedBill.source is required")
 
-        # Build summary: prioritize LLM summary, then clean subject, then filename
-        summary = bill.summary
-        if not summary:
-            summary = self._clean_subject(bill.source.subject)
-
-        if not summary:
-            summary = bill.source.pdf_path.stem
-
-        summary = f"{EVENT_SUMMARY_PREFIX} {summary} {EVENT_SUMMARY_SUFFIX}"
-
-        # Build description
-        description = "Automatically created bill reminder\n"
-        description += f"Source: {bill.source.pdf_path.name}\n"
-        description += f"Email Subject: {bill.source.subject}\n"
-        description += f"Extracted: {datetime.now().date()}"
-        if bill.amount:
-            description += f"\nAmount: {bill.amount}"
-
-        return CalendarEvent(
-            summary=summary,
-            due_date=bill.due_date,
-            description=description,
-        )
-
-    def _clean_subject(self, subject: str) -> str:
-        """Remove bill-related prefixes from subject"""
-        cleaned = subject.strip()
-        lower = cleaned.lower()
-
-        for prefix in PREFIXES_TO_REMOVE:
-            if lower.startswith(prefix.lower()):
-                cleaned = cleaned[len(prefix) :].strip()
-                break
-
-        return cleaned
+        return build_calendar_event(bill, self.reminder_days)
 
     def _update_summary(
-        self, summary: ProcessingSummary, result: BillAnalysisResult
+        self, summary: ProcessingSummary, result: BillAnalysisResult, email: BillEmail
     ):
         """Update summary based on analysis result"""
         if result.status == "success":
             summary.success_count += 1
-            if result.bill and result.bill.source.msg_id:
-                summary.processed_emails.append(result.bill.source.msg_id)
+            summary.processed_emails.append(email.processed_key)
+            summary.processed_records.append(
+                ProcessedRecord.from_email_result(email, result)
+            )
         elif result.status == "not_bill":
             summary.skipped_count += 1
-            if result.bill and result.bill.source.msg_id:
-                summary.processed_emails.append(result.bill.source.msg_id)
+            summary.processed_emails.append(email.processed_key)
+            summary.processed_records.append(
+                ProcessedRecord.from_email_result(email, result)
+            )
         else:  # failed
             summary.failed_count += 1
+
+    def _delete_previous_events(self, emails: list[BillEmail]) -> None:
+        """Delete previously created calendar events for forced reprocessing."""
+        processed_keys = [email.processed_key for email in emails]
+        event_ids = self.gmail.event_ids_for_processed_keys(processed_keys)
+        if not event_ids:
+            return
+
+        logger.info(f"Deleting {len(event_ids)} previous calendar events...")
+        for event_id in event_ids:
+            try:
+                self.calendar.delete_event(event_id)
+            except Exception as e:
+                logger.warning(f"Failed to delete previous event {event_id}: {e}")
 
 
 def create_pipeline(
@@ -227,11 +235,12 @@ def create_pipeline(
     download_dir: Path,
     processed_log: Path,
     calendar_id: str,
-    reminder_days: int,
+    reminder_days: int | list[int],
     gmail_label: str = "bills",
     days_back: int = 7,
     dry_run: bool = False,
     verbose: bool = False,
+    force_reprocess: bool = False,
 ) -> BillPipeline:
     """Factory function to create a fully configured pipeline"""
     gmail = GmailFetcher(
@@ -240,6 +249,7 @@ def create_pipeline(
         processed_log=processed_log,
         label=gmail_label,
         days_back=days_back,
+        ignore_processed=force_reprocess,
     )
     pdf_processor = PDFProcessor(password_provider=password_provider)
     llm_analyzer = LLMAnalyzer(api_key=llm_api_key, model=llm_model)
@@ -247,6 +257,7 @@ def create_pipeline(
         calendar_service=google_services.calendar_provider(),
         calendar_id=calendar_id,
         reminder_days=reminder_days,
+        overwrite_existing=force_reprocess,
     )
 
     return BillPipeline(
@@ -255,6 +266,8 @@ def create_pipeline(
         llm_analyzer=llm_analyzer,
         calendar=calendar,
         processed_log=processed_log,
+        reminder_days=reminder_days,
         dry_run=dry_run,
         verbose=verbose,
+        force_reprocess=force_reprocess,
     )

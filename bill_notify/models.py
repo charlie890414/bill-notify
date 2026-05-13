@@ -19,6 +19,11 @@ class BillEmail:
         if isinstance(self.pdf_path, str):
             self.pdf_path = Path(self.pdf_path)
 
+    @property
+    def processed_key(self) -> str:
+        """Unique key for this email attachment in the processed log."""
+        return f"{self.msg_id}:{self.pdf_path.name}"
+
 
 @dataclass
 class ExtractedBill:
@@ -27,7 +32,7 @@ class ExtractedBill:
     due_date: date
     summary: str
     amount: Optional[str]
-    source: BillEmail
+    source: Optional[BillEmail] = None
 
     @property
     def is_expired(self) -> bool:
@@ -42,6 +47,7 @@ class BillAnalysisResult:
     status: Literal["success", "not_bill", "failed"]
     bill: Optional[ExtractedBill] = None
     error: Optional[str] = None
+    event_id: Optional[str] = None
 
     @property
     def is_success(self) -> bool:
@@ -66,6 +72,7 @@ class ProcessingSummary:
     skipped_count: int = 0
     failed_count: int = 0
     processed_emails: list[str] = field(default_factory=list)
+    processed_records: list["ProcessedRecord"] = field(default_factory=list)
 
     @property
     def total(self) -> int:
@@ -83,8 +90,39 @@ class CalendarEvent:
     summary: str
     due_date: date
     description: str
-    reminder_days: int = 3
+    reminder_days: list[int] = field(default_factory=lambda: [3])
 
     def build_description(self, source: BillEmail) -> str:
         """Build event description with source info"""
         return f"Automatically created bill reminder\nSource: {source.pdf_path.name}\nEmail Subject: {source.subject}\nSender: {source.sender}"
+
+
+@dataclass
+class ProcessedRecord:
+    """Structured processed attachment record."""
+
+    key: str
+    status: Literal["success", "not_bill"]
+    processed_at: str
+    msg_id: str
+    sender: str
+    subject: str
+    pdf_path: str
+    event_id: Optional[str] = None
+    error: Optional[str] = None
+
+    @classmethod
+    def from_email_result(
+        cls, email: BillEmail, result: BillAnalysisResult
+    ) -> "ProcessedRecord":
+        return cls(
+            key=email.processed_key,
+            status=result.status,  # type: ignore[arg-type]
+            processed_at=datetime.now().isoformat(timespec="seconds"),
+            msg_id=email.msg_id,
+            sender=email.sender,
+            subject=email.subject,
+            pdf_path=str(email.pdf_path),
+            event_id=result.event_id,
+            error=result.error,
+        )

@@ -2,6 +2,7 @@
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
 import yaml
@@ -40,7 +41,11 @@ class CalendarConfig:
     """Calendar configuration"""
 
     calendar_id: str = "primary"  # default calendar
-    reminder_days: int = 3  # days in advance for reminder
+    reminder_days: Optional[list[int]] = None  # days in advance for reminders
+
+    def __post_init__(self):
+        if self.reminder_days is None:
+            self.reminder_days = [3]
 
 
 @dataclass
@@ -55,17 +60,25 @@ class AppConfig:
     pdf_passwords_file: str = "pdf_passwords.yaml"
     dry_run: bool = False
     verbose: bool = False
+    force_reprocess: bool = False
 
     @classmethod
     def load(
         cls,
         dry_run: bool = False,
         verbose: bool = False,
+        force_reprocess: bool = False,
         config_file: Optional[str] = None,
         label: Optional[str] = None,
-        reminder_days: Optional[int] = None,
+        reminder_days: Optional[str | int | list[int]] = None,
         calendar_id: Optional[str] = None,
         days_back: Optional[int] = None,
+        credentials_file: Optional[str] = None,
+        token_file: Optional[str] = None,
+        download_dir: Optional[str] = None,
+        processed_log: Optional[str] = None,
+        pdf_passwords_file: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> "AppConfig":
         """
         Load from environment variables and config files
@@ -83,57 +96,147 @@ class AppConfig:
         if not openrouter_api_key:
             raise ValueError("OPENROUTER_API_KEY environment variable not set")
 
-        # Determine config file path
-        if config_file is None:
-            # Check user profile config first
-            user_config_dir = os.path.expanduser("~/.config/bill-notify")
-            user_config_path = os.path.join(user_config_dir, "config.yaml")
-            if os.path.exists(user_config_path):
-                config_path = user_config_path
-            else:
-                config_path = "config.yaml"
-        else:
-            config_path = config_file
+        config_path, explicit_config = _resolve_config_path(config_file)
 
         # Load YAML configuration
-        gmail_label = "bills"
-        calendar_id_config = "primary"
-        reminder_days_config = 3
-        days_back_config = 7
-        openrouter_model = "stepfun/step-3.5-flash:free"
+        settings = {
+            "credentials_file": "credentials.json",
+            "token_file": "token.json",
+            "gmail_label": "bills",
+            "days_back": 7,
+            "calendar_id": "primary",
+            "reminder_days": [3],
+            "model": "stepfun/step-3.5-flash:free",
+            "download_dir": "./downloads",
+            "processed_log": "./processed_emails.log",
+            "pdf_passwords_file": "pdf_passwords.yaml",
+        }
 
-        if os.path.exists(config_path):
+        if config_path.exists():
             with open(config_path, "r", encoding="utf-8") as f:
                 user_config = yaml.safe_load(f) or {}
-                gmail_label = user_config.get("gmail_label", "bills")
-                calendar_id_config = user_config.get("calendar_id", "primary")
-                reminder_days_config = user_config.get("reminder_days", 3)
-                days_back_config = user_config.get("days_back", 7)
-                openrouter_model = user_config.get("model", openrouter_model)
+                for key in settings:
+                    if key in user_config:
+                        settings[key] = user_config[key]
+                _resolve_yaml_paths(settings, user_config, config_path.parent)
+        elif explicit_config:
+            raise FileNotFoundError(f"Config file not found: {config_path}")
+
+        # Environment overrides YAML/defaults.
+        env_overrides = {
+            "credentials_file": os.getenv("GMAIL_CREDENTIALS_FILE"),
+            "token_file": os.getenv("GMAIL_TOKEN_FILE"),
+            "gmail_label": os.getenv("GMAIL_LABEL"),
+            "days_back": os.getenv("GMAIL_DAYS_BACK"),
+            "calendar_id": os.getenv("CALENDAR_ID"),
+            "reminder_days": os.getenv("REMINDER_DAYS"),
+            "model": os.getenv("OPENROUTER_MODEL"),
+            "download_dir": os.getenv("DOWNLOAD_DIR"),
+            "processed_log": os.getenv("PROCESSED_LOG"),
+            "pdf_passwords_file": os.getenv("PDF_PASSWORDS_FILE"),
+        }
+        for key, value in env_overrides.items():
+            if value not in (None, ""):
+                settings[key] = value
 
         # Apply CLI overrides
         if label is not None:
-            gmail_label = label
+            settings["gmail_label"] = label
         if reminder_days is not None:
-            reminder_days_config = reminder_days
+            settings["reminder_days"] = reminder_days
         if calendar_id is not None:
-            calendar_id_config = calendar_id
+            settings["calendar_id"] = calendar_id
         if days_back is not None:
-            days_back_config = days_back
-
-        # Load PDF passwords file path
-        pdf_passwords_file = os.getenv("PDF_PASSWORDS_FILE", "pdf_passwords.yaml")
+            settings["days_back"] = days_back
+        if credentials_file is not None:
+            settings["credentials_file"] = credentials_file
+        if token_file is not None:
+            settings["token_file"] = token_file
+        if download_dir is not None:
+            settings["download_dir"] = download_dir
+        if processed_log is not None:
+            settings["processed_log"] = processed_log
+        if pdf_passwords_file is not None:
+            settings["pdf_passwords_file"] = pdf_passwords_file
+        if model is not None:
+            settings["model"] = model
 
         return cls(
-            gmail=GmailConfig(gmail_label=gmail_label, days_back=days_back_config),
+            gmail=GmailConfig(
+                credentials_file=str(settings["credentials_file"]),
+                token_file=str(settings["token_file"]),
+                gmail_label=str(settings["gmail_label"]),
+                days_back=int(settings["days_back"]),
+            ),
             openrouter=OpenRouterConfig(
                 api_key=openrouter_api_key,
-                model=openrouter_model,
+                model=str(settings["model"]),
             ),
             calendar=CalendarConfig(
-                calendar_id=calendar_id_config, reminder_days=reminder_days_config
+                calendar_id=str(settings["calendar_id"]),
+                reminder_days=_parse_reminder_days(settings["reminder_days"]),
             ),
-            pdf_passwords_file=pdf_passwords_file,
+            download_dir=str(settings["download_dir"]),
+            processed_log=str(settings["processed_log"]),
+            pdf_passwords_file=str(settings["pdf_passwords_file"]),
             dry_run=dry_run,
             verbose=verbose,
+            force_reprocess=force_reprocess,
         )
+
+
+def _resolve_config_path(config_file: Optional[str]) -> tuple[Path, bool]:
+    """Resolve config path and whether it was explicitly requested."""
+    if config_file:
+        return Path(config_file), True
+
+    env_config = os.getenv("CONFIG_FILE")
+    if env_config:
+        return Path(env_config), True
+
+    user_config_path = Path.home() / ".config" / "bill-notify" / "config.yaml"
+    if user_config_path.exists():
+        return user_config_path, False
+
+    return Path("config.yaml"), False
+
+
+def _resolve_yaml_paths(
+    settings: dict[str, object], user_config: dict[str, object], config_dir: Path
+) -> None:
+    """Resolve relative paths that came from YAML relative to the YAML file."""
+    for key in (
+        "credentials_file",
+        "token_file",
+        "download_dir",
+        "processed_log",
+        "pdf_passwords_file",
+    ):
+        if key not in user_config:
+            continue
+
+        path = Path(str(settings[key])).expanduser()
+        if path.is_absolute():
+            settings[key] = str(path)
+        else:
+            settings[key] = str(config_dir / path)
+
+
+def _parse_reminder_days(value: object) -> list[int]:
+    """Parse reminder days from int, comma string, or YAML list."""
+    if isinstance(value, int):
+        values = [value]
+    elif isinstance(value, str):
+        values = [part.strip() for part in value.split(",") if part.strip()]
+    elif isinstance(value, (list, tuple)):
+        values = list(value)
+    else:
+        raise ValueError("reminder_days must be an int, comma string, or list")
+
+    reminder_days = sorted({int(day) for day in values}, reverse=True)
+    if not reminder_days:
+        raise ValueError("reminder_days must not be empty")
+    if any(day < 0 for day in reminder_days):
+        raise ValueError("reminder_days cannot contain negative values")
+
+    return reminder_days

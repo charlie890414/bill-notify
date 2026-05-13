@@ -89,7 +89,7 @@ uv sync
    ```yaml
    gmail_label: "bills"        # Gmail label for filtering bill emails
    calendar_id: "primary"      # Target calendar (default calendar)
-   reminder_days: 3            # Days in advance for reminder
+   reminder_days: [7, 3, 1]    # Days in advance for reminders; single value like 3 also works
    # model: "anthropic/claude-3-haiku"  # Optional: specify a text-compatible model
    ```
 
@@ -134,6 +134,13 @@ Or use uv to run:
 
 ```bash
 uv run bill-notify
+```
+
+To reprocess bills that are already in `processed_emails.log` and replace that
+log with this run's successful/skipped attachments:
+
+```bash
+uv run bill-notify --force-reprocess
 ```
 
 ### Expected Output
@@ -249,7 +256,7 @@ model: "meta-llama/llama-3.3-70b-instruct"  # Powerful open source model
 ### Adjust Reminder Time
 
 ```yaml
-reminder_days: 7  # Remind one week in advance
+reminder_days: [7, 3, 1]  # Remind one week, three days, and one day in advance
 ```
 
 ### PDF Password Management

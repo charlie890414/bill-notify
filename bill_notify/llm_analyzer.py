@@ -3,10 +3,9 @@
 import logging
 import re
 from datetime import date
-from pathlib import Path
 from typing import Dict, Any, Optional
 import httpx
-from bill_notify.models import BillAnalysisResult, ExtractedBill, BillEmail
+from bill_notify.models import BillAnalysisResult, ExtractedBill
 from bill_notify.constants import DEFAULT_TEMPERATURE, DEFAULT_MAX_TOKENS
 
 
@@ -223,12 +222,6 @@ AMOUNT:"""
                     due_date=extracted_date,
                     summary=summary or "Bill Payment",
                     amount=amount if amount else None,
-                    source=BillEmail(
-                        msg_id="",
-                        sender=sender_email,
-                        subject=email_subject,
-                        pdf_path=Path("unknown.pdf") if sender_email else Path(""),
-                    ),
                 ),
             )
 

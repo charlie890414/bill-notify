@@ -138,6 +138,71 @@ def test_no_password_provider():
             pdf_path.unlink()
 
 
+def test_successful_decryption_saves_verified_password():
+    """Test that passwords are only saved after successful decryption."""
+    pdf_path = create_encrypted_pdf("test123")
+
+    class RecordingPasswordProvider:
+        def __init__(self):
+            self.saved = []
+
+        def get_password(self, sender_email: str) -> str | None:
+            return "test123"
+
+        def clear_password(self, sender_email: str) -> None:
+            pass
+
+        def save_password(self, sender_email: str, password: str) -> None:
+            self.saved.append((sender_email, password))
+
+    password_provider = RecordingPasswordProvider()
+    processor = PDFProcessor(password_provider=password_provider)
+
+    try:
+        processor._decrypt_if_needed(pdf_path.read_bytes(), "test@example.com")
+
+        assert password_provider.saved == [("test@example.com", "test123")]
+    finally:
+        if pdf_path.exists():
+            pdf_path.unlink()
+
+
+def test_failed_decryption_does_not_save_password():
+    """Test that wrong passwords are not saved."""
+    pdf_path = create_encrypted_pdf("correct_password")
+
+    class RecordingPasswordProvider:
+        def __init__(self):
+            self.saved = []
+            self.calls = 0
+
+        def get_password(self, sender_email: str) -> str | None:
+            self.calls += 1
+            if self.calls == 1:
+                return "wrong_password"
+            return None
+
+        def clear_password(self, sender_email: str) -> None:
+            pass
+
+        def save_password(self, sender_email: str, password: str) -> None:
+            self.saved.append((sender_email, password))
+
+    password_provider = RecordingPasswordProvider()
+    processor = PDFProcessor(password_provider=password_provider)
+
+    try:
+        try:
+            processor._decrypt_if_needed(pdf_path.read_bytes(), "test@example.com")
+        except PDFProcessingError:
+            pass
+
+        assert password_provider.saved == []
+    finally:
+        if pdf_path.exists():
+            pdf_path.unlink()
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("PDF Decryption Tests")

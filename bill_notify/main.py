@@ -25,6 +25,11 @@ def parse_args():
         help="Show what would be done without creating calendar events or marking emails as processed",
     )
     parser.add_argument(
+        "--force-reprocess",
+        action="store_true",
+        help="Ignore existing processed records and overwrite them with this run's results",
+    )
+    parser.add_argument(
         "--verbose", "-v", action="store_true", help="Enable verbose logging"
     )
     parser.add_argument(
@@ -34,7 +39,9 @@ def parse_args():
         "--label", type=str, help="Gmail label to filter (overrides config)"
     )
     parser.add_argument(
-        "--reminder-days", type=int, help="Reminder days in advance (overrides config)"
+        "--reminder-days",
+        type=str,
+        help="Reminder days in advance, e.g. 7 or 7,3,1 (overrides config)",
     )
     parser.add_argument(
         "--calendar-id", type=str, help="Calendar ID (overrides config)"
@@ -43,6 +50,36 @@ def parse_args():
         "--days-back",
         type=int,
         help="Number of days to look back for emails (overrides config)",
+    )
+    parser.add_argument(
+        "--credentials-file",
+        type=str,
+        help="Path to Google OAuth credentials JSON (overrides config)",
+    )
+    parser.add_argument(
+        "--token-file",
+        type=str,
+        help="Path to Google OAuth token JSON (overrides config)",
+    )
+    parser.add_argument(
+        "--download-dir",
+        type=str,
+        help="Directory for downloaded PDF attachments (overrides config)",
+    )
+    parser.add_argument(
+        "--processed-log",
+        type=str,
+        help="Path to processed email/attachment log (overrides config)",
+    )
+    parser.add_argument(
+        "--pdf-passwords-file",
+        type=str,
+        help="Path to PDF passwords YAML (overrides config)",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        help="OpenRouter model name (overrides config)",
     )
     return parser.parse_args()
 
@@ -65,11 +102,18 @@ async def main():
         config = AppConfig.load(
             dry_run=args.dry_run,
             verbose=args.verbose,
+            force_reprocess=args.force_reprocess,
             config_file=args.config,
             label=args.label,
             reminder_days=args.reminder_days,
             calendar_id=args.calendar_id,
             days_back=args.days_back,
+            credentials_file=args.credentials_file,
+            token_file=args.token_file,
+            download_dir=args.download_dir,
+            processed_log=args.processed_log,
+            pdf_passwords_file=args.pdf_passwords_file,
+            model=args.model,
         )
 
         # Set up Google services
@@ -80,10 +124,10 @@ async def main():
 
         # Set up password provider
         yaml_provider = YamlPasswordProvider.from_file(
-            config.pdf_passwords_file if hasattr(config, 'pdf_passwords_file') else "pdf_passwords.yaml"
+            config.pdf_passwords_file
         )
         interactive_provider = InteractivePasswordProvider(
-            save_path="pdf_passwords.yaml"
+            save_path=config.pdf_passwords_file
         )
         password_provider = CompositePasswordProvider(
             yaml_provider=yaml_provider,
@@ -104,8 +148,10 @@ async def main():
             days_back=config.gmail.days_back,
             dry_run=config.dry_run,
             verbose=config.verbose,
+            force_reprocess=config.force_reprocess,
         )
 
+        logger.debug("Verbose logging enabled")
         await pipeline.run()
 
     except ValueError as e:

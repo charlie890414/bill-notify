@@ -87,6 +87,8 @@ class PDFProcessor:
 
             if result:
                 logger.info("PDF decrypted successfully")
+                if hasattr(self.password_provider, "save_password"):
+                    self.password_provider.save_password(sender_email, password)
                 return self._write_decrypted_pdf(reader)
 
             # Decryption failed - clear cached password so provider can prompt again
