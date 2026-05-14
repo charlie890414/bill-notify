@@ -10,6 +10,7 @@ token_file: "token.json"
 download_dir: "./downloads"
 processed_log: "./processed_emails.log"
 pdf_passwords_file: "pdf_passwords.yaml"
+ocr_cache_dir: "./.cache/paddlex"
 
 # Google Calendar settings
 calendar_id: "primary"  # default calendar, can be email address or calendar ID

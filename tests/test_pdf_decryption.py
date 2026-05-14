@@ -1,7 +1,9 @@
 """Test PDF decryption - Verify decryption works correctly"""
 
+import os
 import sys
 import tempfile
+import types
 from pathlib import Path
 
 try:
@@ -15,6 +17,32 @@ except ImportError:
 from bill_notify.pdf_processor import PDFProcessor
 from bill_notify.password_providers import YamlPasswordProvider, NoOpPasswordProvider
 from bill_notify.exceptions import PDFProcessingError
+
+
+def test_ocr_sets_cache_environment_before_import(tmp_path, monkeypatch):
+    """PaddleOCR should use the configured persistent cache directory."""
+    captured = {}
+
+    class FakePaddleOCR:
+        def __init__(self, **kwargs):
+            captured["kwargs"] = kwargs
+            captured["cache_home"] = os.environ.get("PADDLE_PDX_CACHE_HOME")
+            captured["model_source"] = os.environ.get("PADDLE_PDX_MODEL_SOURCE")
+
+    fake_module = types.SimpleNamespace(PaddleOCR=FakePaddleOCR)
+    monkeypatch.setitem(sys.modules, "paddleocr", fake_module)
+    monkeypatch.delenv("PADDLE_PDX_CACHE_HOME", raising=False)
+    monkeypatch.delenv("PADDLE_PDX_MODEL_SOURCE", raising=False)
+
+    processor = PDFProcessor(
+        password_provider=NoOpPasswordProvider(),
+        ocr_cache_dir=tmp_path / "paddlex-cache",
+    )
+
+    assert processor.ocr is not None
+    assert captured["kwargs"] == {"lang": "chinese_cht"}
+    assert captured["cache_home"] == str((tmp_path / "paddlex-cache").resolve())
+    assert captured["model_source"] == "bos"
 
 
 def create_encrypted_pdf(password: str = "test123") -> Path:

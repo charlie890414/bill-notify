@@ -234,6 +234,7 @@ def create_pipeline(
     llm_model: str,
     download_dir: Path,
     processed_log: Path,
+    ocr_cache_dir: Path,
     calendar_id: str,
     reminder_days: int | list[int],
     gmail_label: str = "bills",
@@ -251,7 +252,10 @@ def create_pipeline(
         days_back=days_back,
         ignore_processed=force_reprocess,
     )
-    pdf_processor = PDFProcessor(password_provider=password_provider)
+    pdf_processor = PDFProcessor(
+        password_provider=password_provider,
+        ocr_cache_dir=ocr_cache_dir,
+    )
     llm_analyzer = LLMAnalyzer(api_key=llm_api_key, model=llm_model)
     calendar = CalendarSync(
         calendar_service=google_services.calendar_provider(),

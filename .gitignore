@@ -43,6 +43,7 @@ config.yaml
 pdf_passwords.yaml
 downloads/
 processed_emails.log
+.cache/
 
 # Logs
 *.log

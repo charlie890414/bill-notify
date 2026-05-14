@@ -90,6 +90,7 @@ uv sync
    gmail_label: "bills"        # Gmail label for filtering bill emails
    calendar_id: "primary"      # Target calendar (default calendar)
    reminder_days: [7, 3, 1]    # Days in advance for reminders; single value like 3 also works
+   ocr_cache_dir: "./.cache/paddlex"  # Reuse downloaded PaddleOCR models
    # model: "anthropic/claude-3-haiku"  # Optional: specify a text-compatible model
    ```
 
@@ -142,6 +143,20 @@ log with this run's successful/skipped attachments:
 ```bash
 uv run bill-notify --force-reprocess
 ```
+
+### Docker Compose Permissions
+
+Compose runs the app with `PUID`/`PGID` from `.env` so writable bind mounts
+like `token.json`, `processed_emails.log`, `downloads/`, and `.cache/paddlex/`
+match the host file owner:
+
+```bash
+PUID=$(id -u)
+PGID=$(id -g)
+```
+
+If your NAS user owns the files as `1026:users`, use `PUID=1026` and
+`PGID=100`.
 
 ### Expected Output
 

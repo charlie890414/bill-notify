@@ -36,7 +36,7 @@ RUN python -m pip install --upgrade pip \
     && python -m pip install .
 
 RUN useradd --create-home --shell /usr/sbin/nologin appuser \
-    && mkdir -p /app/downloads \
+    && mkdir -p /app/downloads /app/.cache/paddlex \
     && chmod +x /app/deploy/run-supercronic.sh \
     && chown -R appuser:appuser /app
 

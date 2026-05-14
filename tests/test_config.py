@@ -18,6 +18,8 @@ CONFIG_ENV_VARS = [
     "DOWNLOAD_DIR",
     "PROCESSED_LOG",
     "PDF_PASSWORDS_FILE",
+    "OCR_CACHE_DIR",
+    "PADDLE_PDX_CACHE_HOME",
 ]
 
 
@@ -43,6 +45,7 @@ def test_config_priority_defaults_yaml_env_cli(tmp_path, monkeypatch):
                 'download_dir: "yaml-downloads"',
                 'processed_log: "yaml-processed.log"',
                 'pdf_passwords_file: "yaml-passwords.yaml"',
+                'ocr_cache_dir: "yaml-ocr-cache"',
             ]
         ),
         encoding="utf-8",
@@ -51,12 +54,14 @@ def test_config_priority_defaults_yaml_env_cli(tmp_path, monkeypatch):
     monkeypatch.setenv("REMINDER_DAYS", "6,3")
     monkeypatch.setenv("OPENROUTER_MODEL", "env-model")
     monkeypatch.setenv("DOWNLOAD_DIR", "env-downloads")
+    monkeypatch.setenv("OCR_CACHE_DIR", "env-ocr-cache")
 
     config = AppConfig.load(
         config_file=str(config_file),
         label="cli-label",
         reminder_days="8,1",
         model="cli-model",
+        ocr_cache_dir="cli-ocr-cache",
     )
 
     assert config.gmail.gmail_label == "cli-label"
@@ -69,6 +74,7 @@ def test_config_priority_defaults_yaml_env_cli(tmp_path, monkeypatch):
     assert config.download_dir == "env-downloads"
     assert config.processed_log == str(tmp_path / "yaml-processed.log")
     assert config.pdf_passwords_file == str(tmp_path / "yaml-passwords.yaml")
+    assert config.ocr_cache_dir == "cli-ocr-cache"
 
 
 def test_config_file_env_selects_config_path(tmp_path, monkeypatch):
@@ -108,6 +114,15 @@ def test_default_missing_config_file_uses_defaults(tmp_path, monkeypatch):
     assert config.gmail.gmail_label == "bills"
     assert config.calendar.calendar_id == "primary"
     assert config.download_dir == "./downloads"
+    assert config.ocr_cache_dir == "./.cache/paddlex"
+
+
+def test_paddlex_cache_home_sets_default_ocr_cache_dir(monkeypatch):
+    monkeypatch.setenv("PADDLE_PDX_CACHE_HOME", "/tmp/paddlex-cache")
+
+    config = AppConfig.load()
+
+    assert config.ocr_cache_dir == "/tmp/paddlex-cache"
 
 
 def test_reminder_days_accept_int_string_and_yaml_list(tmp_path, monkeypatch):
@@ -137,6 +152,7 @@ def test_yaml_relative_paths_resolve_from_config_file_location(tmp_path):
                 'download_dir: "downloads"',
                 'processed_log: "state/processed.log"',
                 'pdf_passwords_file: "secrets/pdf_passwords.yaml"',
+                'ocr_cache_dir: "cache/paddlex"',
             ]
         ),
         encoding="utf-8",
@@ -151,3 +167,4 @@ def test_yaml_relative_paths_resolve_from_config_file_location(tmp_path):
     assert config.pdf_passwords_file == str(
         config_dir / "secrets" / "pdf_passwords.yaml"
     )
+    assert config.ocr_cache_dir == str(config_dir / "cache" / "paddlex")

@@ -77,6 +77,11 @@ def parse_args():
         help="Path to PDF passwords YAML (overrides config)",
     )
     parser.add_argument(
+        "--ocr-cache-dir",
+        type=str,
+        help="Directory for cached PaddleOCR/PaddleX models (overrides config)",
+    )
+    parser.add_argument(
         "--model",
         type=str,
         help="OpenRouter model name (overrides config)",
@@ -113,6 +118,7 @@ async def main():
             download_dir=args.download_dir,
             processed_log=args.processed_log,
             pdf_passwords_file=args.pdf_passwords_file,
+            ocr_cache_dir=args.ocr_cache_dir,
             model=args.model,
         )
 
@@ -142,6 +148,7 @@ async def main():
             llm_model=config.openrouter.model,
             download_dir=Path(config.download_dir),
             processed_log=Path(config.processed_log),
+            ocr_cache_dir=Path(config.ocr_cache_dir),
             calendar_id=config.calendar.calendar_id,
             reminder_days=config.calendar.reminder_days,
             gmail_label=config.gmail.gmail_label,

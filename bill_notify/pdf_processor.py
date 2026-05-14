@@ -1,6 +1,7 @@
 """PDF Processor - Extract text from PDFs using PaddleOCR"""
 
 import logging
+import os
 import tempfile
 from io import BytesIO
 from pathlib import Path
@@ -15,16 +16,26 @@ logger = logging.getLogger(__name__)
 class PDFProcessor:
     """PDF Processor with PaddleOCR text extraction"""
 
-    def __init__(self, password_provider: PasswordProvider):
+    def __init__(
+        self,
+        password_provider: PasswordProvider,
+        ocr_cache_dir: Path | str | None = None,
+    ):
         self.password_provider = password_provider
+        self.ocr_cache_dir = Path(ocr_cache_dir or "./.cache/paddlex").expanduser()
         self._ocr = None  # Lazy initialization
 
     @property
     def ocr(self):
         """Lazy-load PaddleOCR on first use"""
         if self._ocr is None:
+            self.ocr_cache_dir.mkdir(parents=True, exist_ok=True)
+            os.environ["PADDLE_PDX_CACHE_HOME"] = str(self.ocr_cache_dir.resolve())
+            os.environ.setdefault("PADDLE_PDX_MODEL_SOURCE", "bos")
+
             from paddleocr import PaddleOCR
 
+            logger.info(f"Using OCR model cache: {self.ocr_cache_dir}")
             self._ocr = PaddleOCR(lang="chinese_cht")
         return self._ocr
 

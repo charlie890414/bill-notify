@@ -4,6 +4,7 @@ x-bill-notify-common: &bill-notify-common
   image: bill-notify:local
   env_file:
     - .env
+  user: "${PUID:-1026}:${PGID:-100}"
   environment:
     TZ: Asia/Taipei
   volumes:
@@ -13,6 +14,7 @@ x-bill-notify-common: &bill-notify-common
     - ./pdf_passwords.yaml:/app/pdf_passwords.yaml:ro
     - ./processed_emails.log:/app/processed_emails.log
     - ./downloads:/app/downloads
+    - ./.cache/paddlex:/app/.cache/paddlex
 
 services:
   bill-notify:

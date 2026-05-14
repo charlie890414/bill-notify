@@ -58,6 +58,7 @@ class AppConfig:
     download_dir: str = "./downloads"
     processed_log: str = "./processed_emails.log"
     pdf_passwords_file: str = "pdf_passwords.yaml"
+    ocr_cache_dir: str = "./.cache/paddlex"
     dry_run: bool = False
     verbose: bool = False
     force_reprocess: bool = False
@@ -78,6 +79,7 @@ class AppConfig:
         download_dir: Optional[str] = None,
         processed_log: Optional[str] = None,
         pdf_passwords_file: Optional[str] = None,
+        ocr_cache_dir: Optional[str] = None,
         model: Optional[str] = None,
     ) -> "AppConfig":
         """
@@ -110,6 +112,7 @@ class AppConfig:
             "download_dir": "./downloads",
             "processed_log": "./processed_emails.log",
             "pdf_passwords_file": "pdf_passwords.yaml",
+            "ocr_cache_dir": os.getenv("PADDLE_PDX_CACHE_HOME", "./.cache/paddlex"),
         }
 
         if config_path.exists():
@@ -134,6 +137,7 @@ class AppConfig:
             "download_dir": os.getenv("DOWNLOAD_DIR"),
             "processed_log": os.getenv("PROCESSED_LOG"),
             "pdf_passwords_file": os.getenv("PDF_PASSWORDS_FILE"),
+            "ocr_cache_dir": os.getenv("OCR_CACHE_DIR"),
         }
         for key, value in env_overrides.items():
             if value not in (None, ""):
@@ -158,6 +162,8 @@ class AppConfig:
             settings["processed_log"] = processed_log
         if pdf_passwords_file is not None:
             settings["pdf_passwords_file"] = pdf_passwords_file
+        if ocr_cache_dir is not None:
+            settings["ocr_cache_dir"] = ocr_cache_dir
         if model is not None:
             settings["model"] = model
 
@@ -179,6 +185,7 @@ class AppConfig:
             download_dir=str(settings["download_dir"]),
             processed_log=str(settings["processed_log"]),
             pdf_passwords_file=str(settings["pdf_passwords_file"]),
+            ocr_cache_dir=str(settings["ocr_cache_dir"]),
             dry_run=dry_run,
             verbose=verbose,
             force_reprocess=force_reprocess,
@@ -211,6 +218,7 @@ def _resolve_yaml_paths(
         "download_dir",
         "processed_log",
         "pdf_passwords_file",
+        "ocr_cache_dir",
     ):
         if key not in user_config:
             continue
