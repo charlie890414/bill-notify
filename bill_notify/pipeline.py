@@ -2,6 +2,7 @@
 
 import logging
 from pathlib import Path
+from typing import Optional
 from bill_notify.models import (
     BillEmail,
     ProcessingSummary,
@@ -242,6 +243,9 @@ def create_pipeline(
     dry_run: bool = False,
     verbose: bool = False,
     force_reprocess: bool = False,
+    ocr_text_detection_model_name: Optional[str] = None,
+    ocr_text_recognition_model_name: Optional[str] = None,
+    ocr_cpu_threads: Optional[int] = None,
 ) -> BillPipeline:
     """Factory function to create a fully configured pipeline"""
     gmail = GmailFetcher(
@@ -255,6 +259,9 @@ def create_pipeline(
     pdf_processor = PDFProcessor(
         password_provider=password_provider,
         ocr_cache_dir=ocr_cache_dir,
+        text_detection_model_name=ocr_text_detection_model_name,
+        text_recognition_model_name=ocr_text_recognition_model_name,
+        cpu_threads=ocr_cpu_threads,
     )
     llm_analyzer = LLMAnalyzer(api_key=llm_api_key, model=llm_model)
     calendar = CalendarSync(

@@ -59,6 +59,9 @@ class AppConfig:
     processed_log: str = "./processed_emails.log"
     pdf_passwords_file: str = "pdf_passwords.yaml"
     ocr_cache_dir: str = "./.cache/paddlex"
+    ocr_text_detection_model_name: Optional[str] = None
+    ocr_text_recognition_model_name: Optional[str] = None
+    ocr_cpu_threads: Optional[int] = None
     dry_run: bool = False
     verbose: bool = False
     force_reprocess: bool = False
@@ -80,6 +83,9 @@ class AppConfig:
         processed_log: Optional[str] = None,
         pdf_passwords_file: Optional[str] = None,
         ocr_cache_dir: Optional[str] = None,
+        ocr_text_detection_model_name: Optional[str] = None,
+        ocr_text_recognition_model_name: Optional[str] = None,
+        ocr_cpu_threads: Optional[int] = None,
         model: Optional[str] = None,
     ) -> "AppConfig":
         """
@@ -113,6 +119,9 @@ class AppConfig:
             "processed_log": "./processed_emails.log",
             "pdf_passwords_file": "pdf_passwords.yaml",
             "ocr_cache_dir": os.getenv("PADDLE_PDX_CACHE_HOME", "./.cache/paddlex"),
+            "ocr_text_detection_model_name": None,
+            "ocr_text_recognition_model_name": None,
+            "ocr_cpu_threads": None,
         }
 
         if config_path.exists():
@@ -138,6 +147,13 @@ class AppConfig:
             "processed_log": os.getenv("PROCESSED_LOG"),
             "pdf_passwords_file": os.getenv("PDF_PASSWORDS_FILE"),
             "ocr_cache_dir": os.getenv("OCR_CACHE_DIR"),
+            "ocr_text_detection_model_name": os.getenv(
+                "OCR_TEXT_DETECTION_MODEL_NAME"
+            ),
+            "ocr_text_recognition_model_name": os.getenv(
+                "OCR_TEXT_RECOGNITION_MODEL_NAME"
+            ),
+            "ocr_cpu_threads": os.getenv("OCR_CPU_THREADS"),
         }
         for key, value in env_overrides.items():
             if value not in (None, ""):
@@ -164,6 +180,14 @@ class AppConfig:
             settings["pdf_passwords_file"] = pdf_passwords_file
         if ocr_cache_dir is not None:
             settings["ocr_cache_dir"] = ocr_cache_dir
+        if ocr_text_detection_model_name is not None:
+            settings["ocr_text_detection_model_name"] = ocr_text_detection_model_name
+        if ocr_text_recognition_model_name is not None:
+            settings["ocr_text_recognition_model_name"] = (
+                ocr_text_recognition_model_name
+            )
+        if ocr_cpu_threads is not None:
+            settings["ocr_cpu_threads"] = ocr_cpu_threads
         if model is not None:
             settings["model"] = model
 
@@ -186,6 +210,13 @@ class AppConfig:
             processed_log=str(settings["processed_log"]),
             pdf_passwords_file=str(settings["pdf_passwords_file"]),
             ocr_cache_dir=str(settings["ocr_cache_dir"]),
+            ocr_text_detection_model_name=_optional_str(
+                settings["ocr_text_detection_model_name"]
+            ),
+            ocr_text_recognition_model_name=_optional_str(
+                settings["ocr_text_recognition_model_name"]
+            ),
+            ocr_cpu_threads=_optional_int(settings["ocr_cpu_threads"]),
             dry_run=dry_run,
             verbose=verbose,
             force_reprocess=force_reprocess,
@@ -248,3 +279,17 @@ def _parse_reminder_days(value: object) -> list[int]:
         raise ValueError("reminder_days cannot contain negative values")
 
     return reminder_days
+
+
+def _optional_str(value: object) -> Optional[str]:
+    """Convert optional config values without turning None into 'None'."""
+    if value in (None, ""):
+        return None
+    return str(value)
+
+
+def _optional_int(value: object) -> Optional[int]:
+    """Convert optional integer config values."""
+    if value in (None, ""):
+        return None
+    return int(value)

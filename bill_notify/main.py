@@ -82,6 +82,21 @@ def parse_args():
         help="Directory for cached PaddleOCR/PaddleX models (overrides config)",
     )
     parser.add_argument(
+        "--ocr-text-detection-model-name",
+        type=str,
+        help="PaddleOCR text detection model name (overrides config)",
+    )
+    parser.add_argument(
+        "--ocr-text-recognition-model-name",
+        type=str,
+        help="PaddleOCR text recognition model name (overrides config)",
+    )
+    parser.add_argument(
+        "--ocr-cpu-threads",
+        type=int,
+        help="Number of CPU threads for PaddleOCR inference (overrides config)",
+    )
+    parser.add_argument(
         "--model",
         type=str,
         help="OpenRouter model name (overrides config)",
@@ -119,6 +134,9 @@ async def main():
             processed_log=args.processed_log,
             pdf_passwords_file=args.pdf_passwords_file,
             ocr_cache_dir=args.ocr_cache_dir,
+            ocr_text_detection_model_name=args.ocr_text_detection_model_name,
+            ocr_text_recognition_model_name=args.ocr_text_recognition_model_name,
+            ocr_cpu_threads=args.ocr_cpu_threads,
             model=args.model,
         )
 
@@ -149,6 +167,9 @@ async def main():
             download_dir=Path(config.download_dir),
             processed_log=Path(config.processed_log),
             ocr_cache_dir=Path(config.ocr_cache_dir),
+            ocr_text_detection_model_name=config.ocr_text_detection_model_name,
+            ocr_text_recognition_model_name=config.ocr_text_recognition_model_name,
+            ocr_cpu_threads=config.ocr_cpu_threads,
             calendar_id=config.calendar.calendar_id,
             reminder_days=config.calendar.reminder_days,
             gmail_label=config.gmail.gmail_label,

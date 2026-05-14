@@ -37,12 +37,40 @@ def test_ocr_sets_cache_environment_before_import(tmp_path, monkeypatch):
     processor = PDFProcessor(
         password_provider=NoOpPasswordProvider(),
         ocr_cache_dir=tmp_path / "paddlex-cache",
+        text_detection_model_name="custom-det",
+        text_recognition_model_name="custom-rec",
+        cpu_threads=2,
+    )
+
+    assert processor.ocr is not None
+    assert captured["kwargs"] == {
+        "lang": "chinese_cht",
+        "text_detection_model_name": "custom-det",
+        "text_recognition_model_name": "custom-rec",
+        "cpu_threads": 2,
+    }
+    assert captured["cache_home"] == str((tmp_path / "paddlex-cache").resolve())
+    assert captured["model_source"] == "bos"
+
+
+def test_ocr_uses_original_default_arguments(tmp_path, monkeypatch):
+    """PaddleOCR should use the original lang-only default unless overridden."""
+    captured = {}
+
+    class FakePaddleOCR:
+        def __init__(self, **kwargs):
+            captured["kwargs"] = kwargs
+
+    fake_module = types.SimpleNamespace(PaddleOCR=FakePaddleOCR)
+    monkeypatch.setitem(sys.modules, "paddleocr", fake_module)
+
+    processor = PDFProcessor(
+        password_provider=NoOpPasswordProvider(),
+        ocr_cache_dir=tmp_path / "paddlex-cache",
     )
 
     assert processor.ocr is not None
     assert captured["kwargs"] == {"lang": "chinese_cht"}
-    assert captured["cache_home"] == str((tmp_path / "paddlex-cache").resolve())
-    assert captured["model_source"] == "bos"
 
 
 def create_encrypted_pdf(password: str = "test123") -> Path:

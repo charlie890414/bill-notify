@@ -20,9 +20,20 @@ class PDFProcessor:
         self,
         password_provider: PasswordProvider,
         ocr_cache_dir: Path | str | None = None,
+        lang: str = "chinese_cht",
+        text_detection_model_name: str | None = None,
+        text_recognition_model_name: str | None = None,
+        cpu_threads: int | None = None,
     ):
         self.password_provider = password_provider
         self.ocr_cache_dir = Path(ocr_cache_dir or "./.cache/paddlex").expanduser()
+        self.ocr_kwargs = {"lang": lang}
+        if text_detection_model_name is not None:
+            self.ocr_kwargs["text_detection_model_name"] = text_detection_model_name
+        if text_recognition_model_name is not None:
+            self.ocr_kwargs["text_recognition_model_name"] = text_recognition_model_name
+        if cpu_threads is not None:
+            self.ocr_kwargs["cpu_threads"] = cpu_threads
         self._ocr = None  # Lazy initialization
 
     @property
@@ -36,7 +47,7 @@ class PDFProcessor:
             from paddleocr import PaddleOCR
 
             logger.info(f"Using OCR model cache: {self.ocr_cache_dir}")
-            self._ocr = PaddleOCR(lang="chinese_cht")
+            self._ocr = PaddleOCR(**self.ocr_kwargs)
         return self._ocr
 
     def process_pdf(self, pdf_path: Path, sender_email: str = "") -> str:

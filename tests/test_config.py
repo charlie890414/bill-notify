@@ -19,6 +19,9 @@ CONFIG_ENV_VARS = [
     "PROCESSED_LOG",
     "PDF_PASSWORDS_FILE",
     "OCR_CACHE_DIR",
+    "OCR_TEXT_DETECTION_MODEL_NAME",
+    "OCR_TEXT_RECOGNITION_MODEL_NAME",
+    "OCR_CPU_THREADS",
     "PADDLE_PDX_CACHE_HOME",
 ]
 
@@ -46,6 +49,9 @@ def test_config_priority_defaults_yaml_env_cli(tmp_path, monkeypatch):
                 'processed_log: "yaml-processed.log"',
                 'pdf_passwords_file: "yaml-passwords.yaml"',
                 'ocr_cache_dir: "yaml-ocr-cache"',
+                'ocr_text_detection_model_name: "yaml-det"',
+                'ocr_text_recognition_model_name: "yaml-rec"',
+                "ocr_cpu_threads: 2",
             ]
         ),
         encoding="utf-8",
@@ -55,6 +61,9 @@ def test_config_priority_defaults_yaml_env_cli(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENROUTER_MODEL", "env-model")
     monkeypatch.setenv("DOWNLOAD_DIR", "env-downloads")
     monkeypatch.setenv("OCR_CACHE_DIR", "env-ocr-cache")
+    monkeypatch.setenv("OCR_TEXT_DETECTION_MODEL_NAME", "env-det")
+    monkeypatch.setenv("OCR_TEXT_RECOGNITION_MODEL_NAME", "env-rec")
+    monkeypatch.setenv("OCR_CPU_THREADS", "3")
 
     config = AppConfig.load(
         config_file=str(config_file),
@@ -62,6 +71,9 @@ def test_config_priority_defaults_yaml_env_cli(tmp_path, monkeypatch):
         reminder_days="8,1",
         model="cli-model",
         ocr_cache_dir="cli-ocr-cache",
+        ocr_text_detection_model_name="cli-det",
+        ocr_text_recognition_model_name="cli-rec",
+        ocr_cpu_threads=4,
     )
 
     assert config.gmail.gmail_label == "cli-label"
@@ -75,6 +87,9 @@ def test_config_priority_defaults_yaml_env_cli(tmp_path, monkeypatch):
     assert config.processed_log == str(tmp_path / "yaml-processed.log")
     assert config.pdf_passwords_file == str(tmp_path / "yaml-passwords.yaml")
     assert config.ocr_cache_dir == "cli-ocr-cache"
+    assert config.ocr_text_detection_model_name == "cli-det"
+    assert config.ocr_text_recognition_model_name == "cli-rec"
+    assert config.ocr_cpu_threads == 4
 
 
 def test_config_file_env_selects_config_path(tmp_path, monkeypatch):
@@ -115,6 +130,9 @@ def test_default_missing_config_file_uses_defaults(tmp_path, monkeypatch):
     assert config.calendar.calendar_id == "primary"
     assert config.download_dir == "./downloads"
     assert config.ocr_cache_dir == "./.cache/paddlex"
+    assert config.ocr_text_detection_model_name is None
+    assert config.ocr_text_recognition_model_name is None
+    assert config.ocr_cpu_threads is None
 
 
 def test_paddlex_cache_home_sets_default_ocr_cache_dir(monkeypatch):

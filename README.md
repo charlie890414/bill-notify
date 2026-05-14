@@ -91,6 +91,10 @@ uv sync
    calendar_id: "primary"      # Target calendar (default calendar)
    reminder_days: [7, 3, 1]    # Days in advance for reminders; single value like 3 also works
    ocr_cache_dir: "./.cache/paddlex"  # Reuse downloaded PaddleOCR models
+   # Optional for ARM/mobile deployments:
+   # ocr_text_detection_model_name: "PP-OCRv5_mobile_det"
+   # ocr_text_recognition_model_name: "PP-OCRv5_mobile_rec"
+   # ocr_cpu_threads: 4
    # model: "anthropic/claude-3-haiku"  # Optional: specify a text-compatible model
    ```
 
