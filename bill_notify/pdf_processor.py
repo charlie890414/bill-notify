@@ -27,13 +27,15 @@ class PDFProcessor:
     ):
         self.password_provider = password_provider
         self.ocr_cache_dir = Path(ocr_cache_dir or "./.cache/paddlex").expanduser()
-        self.ocr_kwargs = {"lang": lang}
+        self.ocr_kwargs = {}
         if text_detection_model_name is not None:
             self.ocr_kwargs["text_detection_model_name"] = text_detection_model_name
         if text_recognition_model_name is not None:
             self.ocr_kwargs["text_recognition_model_name"] = text_recognition_model_name
         if cpu_threads is not None:
             self.ocr_kwargs["cpu_threads"] = cpu_threads
+        if not self.ocr_kwargs:
+            self.ocr_kwargs["lang"] = lang
         self._ocr = None  # Lazy initialization
 
     @property

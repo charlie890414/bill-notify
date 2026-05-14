@@ -44,7 +44,6 @@ def test_ocr_sets_cache_environment_before_import(tmp_path, monkeypatch):
 
     assert processor.ocr is not None
     assert captured["kwargs"] == {
-        "lang": "chinese_cht",
         "text_detection_model_name": "custom-det",
         "text_recognition_model_name": "custom-rec",
         "cpu_threads": 2,
